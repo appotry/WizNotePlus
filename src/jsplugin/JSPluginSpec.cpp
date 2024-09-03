@@ -1,14 +1,15 @@
 #include "JSPluginSpec.h"
 
 #include <algorithm>
-
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QVector>
+#include <QVersionNumber>
 
+#include "WizDef.h"
 
 #define MANIFESTVERSION 2
 
@@ -29,6 +30,7 @@ JSPluginSpec::JSPluginSpec(const QString &manifestFileName, QObject* parent)
     m_guid = m_settings->value("Common/AppGUID", "").toString();
     m_moduleCount = m_settings->value("Common/ModuleCount", 0).toInt();
     m_manifestVersion = m_settings->value("Common/ManifestVersion", 0).toInt();
+    m_apiMinimumRequired = m_settings->value("Common/ApiMinimumRequired", "").toString();
 
     // Parse Modules
     m_realModuleCount = 0;
@@ -68,6 +70,17 @@ bool JSPluginSpec::validate() {
         return false;
     }
 
+    if (!m_apiMinimumRequired.isEmpty()) {
+        QVersionNumber current = QVersionNumber::fromString(WIZ_CLIENT_VERSION);
+        QVersionNumber required = QVersionNumber::fromString(m_apiMinimumRequired);
+        if (current < required) {
+            warn(QString(
+                "Minimum WizNotePlus version required is '%1', but current version is '%2'")
+                    .arg(required.toString(), current.toString()));
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -99,6 +112,14 @@ JSPluginModuleSpec::JSPluginModuleSpec(QString& section, QSettings *setting, QOb
     m_scriptFiles = getFileList(setting, section + "/ScriptFiles");
     m_styleFiles = getFileList(setting, section + "/StyleFiles");
     m_supportedFormats = setting->value(section + "/SupportedFormats").toStringList();
+
+    // Menu type module
+    auto indexes = setting->value(section + "/Actions").toStringList();
+    indexes.removeDuplicates();
+    foreach (const QString &ind, indexes) {
+        m_actionIndexes.append(ind.toInt());
+    }
+    m_sidebarLocation = setting->value(section + "/SidebarLocation", "Right").toString();
 }
 
 QStringList JSPluginModuleSpec::getFileList(QSettings *setting, const QString &key)
@@ -139,7 +160,9 @@ bool JSPluginModuleSpec::validateActionTypeModule()
         return false;
 
     QVector<QString> slotTypeOptions = {
-        "ExecuteScript", "HtmlDialog", "SelectorWindow", "MainTabView"
+        "ExecuteScript", "HtmlDialog",
+        "SelectorWindow", "MainTabView",
+        "DocumentSidebar"
     };
     if (!slotTypeOptions.contains(m_slotType)) {
         warn(QString("Unknown SlotType '%1'").arg(m_slotType));
@@ -147,7 +170,7 @@ bool JSPluginModuleSpec::validateActionTypeModule()
     }
 
     QVector<QString> buttonLocationOptions = {
-        "Main", "Document"
+        "Main", "Document", "Menu"
     };
     if (!buttonLocationOptions.contains(m_buttonLocation)) {
         warn(QString("Unknown ButtonLocation '%1'").arg(m_buttonLocation));
@@ -176,6 +199,12 @@ bool JSPluginModuleSpec::validateActionTypeModule()
             warn("The file of HtmlFileName does not exist.");
             return false;
         }
+    }
+
+    QStringList sidebars = {"Left", "Right"};
+    if (!sidebars.contains(m_sidebarLocation)) {
+        warn("SidebarLocation must be: 'Right' or 'Left'.");
+        return false;
     }
 
     return true;
@@ -211,6 +240,43 @@ bool JSPluginModuleSpec::validateEditorTypeModule()
     return isAllScriptValid && isAllScriptValid;
 }
 
+bool JSPluginModuleSpec::validateMenuTypeModule()
+{
+    QVector<QString> buttonLocationOptions = {
+        "Main", "Document"
+    };
+    if (!buttonLocationOptions.contains(m_buttonLocation)) {
+        warn(QString("Unknown ButtonLocation '%1'").arg(m_buttonLocation));
+        return false;
+    }
+
+    if (m_actionIndexes.isEmpty()) {
+        warn("Empty menu actions");
+        return false;
+    }
+
+    JSPluginSpec *spec = parentSpec();
+    bool isAllActionValid = std::all_of(m_actionIndexes.begin(), m_actionIndexes.end(),
+        [spec, this](const int &index) {
+            if (index > spec->moduleCount()) {
+                warn("menu action index out of range");
+                return false;
+            }
+            JSPluginModuleSpec *ms = spec->module(index);
+            if (ms->moduleType() != "Action") {
+                warn("menu module must be action type");
+                return false;
+            }
+            if (ms->buttonLocation() != "Menu") {
+                warn("menu module must be located at Menu");
+                return false;
+            }
+            return true;
+        });
+
+    return isAllActionValid;
+}
+
 bool JSPluginModuleSpec::validate()
 {
     if (m_caption.isEmpty()) {
@@ -232,6 +298,8 @@ bool JSPluginModuleSpec::validate()
         return validateActionTypeModule();
     } else if (m_moduleType == "Editor") {
         return validateEditorTypeModule();
+    } else if (m_moduleType == "Menu") {
+        return validateMenuTypeModule();
     }
 
     warn(QString("Unknown module type '%2'").arg(m_moduleType));

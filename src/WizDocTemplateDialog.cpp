@@ -63,7 +63,6 @@ WizDocTemplateDialog::WizDocTemplateDialog(WizDatabaseManager& dbMgr, QWidget *p
     ui->treeWidget->setMaximumWidth(200);
     m_transitionView = new WizDocumentTransitionView(this);
     ui->horizontalLayout_2->addWidget(m_transitionView);
-    m_transitionView->setStyleSheet(".QWidget{background-color:#FFFFFF;} QToolButton {border:0px; padding:0px; border-radius:0px;background-color:#F5F5F5;}");
     m_transitionView->hide();
     m_transitionView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
@@ -537,7 +536,7 @@ bool getTemplateListFroNewNoteMenu(QList<TemplateData>& tmplList)
     // 内置的handwriting模板
     TemplateData tmplHandwriting;
     tmplHandwriting.type = BuildInTemplate;
-    tmplHandwriting.strFileName = Utils::WizPathResolve::resourcesPath() + "templates/generic/handwriting.ziw";;
+    tmplHandwriting.strFileName = Utils::WizPathResolve::resourcesPath() + "templates/generic/handwriting.ziw";
     tmplHandwriting.strName = QObject::tr("Handwriting Note");
     tmplHandwriting.strTitle = QObject::tr("Handwriting Note");
     tmplHandwriting.buildInName = "svgpainter";
@@ -547,12 +546,22 @@ bool getTemplateListFroNewNoteMenu(QList<TemplateData>& tmplList)
     // 内置的outline模板
     TemplateData tmplOutlone;
     tmplOutlone.type = BuildInTemplate;
-    tmplOutlone.strFileName = Utils::WizPathResolve::resourcesPath() + "templates/generic/newnote.ziw";;
+    tmplOutlone.strFileName = Utils::WizPathResolve::resourcesPath() + "templates/generic/newnote.ziw";
     tmplOutlone.strName = QObject::tr("Outline Note");
     tmplOutlone.strTitle = QObject::tr("Outline Note");
     tmplOutlone.buildInName = "outline";
     tmplOutlone.isFree = true;
     tmplList.append(tmplOutlone);
+
+    // 协作笔记
+    TemplateData tmplCollaboration;
+    tmplCollaboration.type = BuildInTemplate;
+    tmplCollaboration.strFileName = Utils::WizPathResolve::resourcesPath() + "templates/generic/collaboration.ziw";
+    tmplCollaboration.strName = QObject::tr("Collaboration Note");
+    tmplCollaboration.strTitle = QObject::tr("Collaboration Note");
+    tmplCollaboration.buildInName = "collaboration";
+    tmplCollaboration.isFree = true;
+    tmplList.append(tmplCollaboration);
 
     // sep
     TemplateData tmplSep;

@@ -18,6 +18,7 @@
 #include <QPrintDialog>
 #include <QPrinter>
 #include <QCheckBox>
+#include <QProgressDialog>
 
 #ifdef Q_OS_MAC
 #include <Carbon/Carbon.h>
@@ -53,6 +54,7 @@
 #include "utils/WizStyleHelper.h"
 #include "utils/WizMisc.h"
 #include "utils/WizPinyin.h"
+#include "utils/WizLogger.h"
 #include "widgets/WizFramelessWebDialog.h"
 #include "widgets/WizScreenShotWidget.h"
 #include "widgets/WizImageButton.h"
@@ -60,6 +62,7 @@
 #include "widgets/WizLocalProgressWebView.h"
 #include "widgets/WizTemplatePurchaseDialog.h"
 #include "widgets/WizCodeEditorDialog.h"
+#include "widgets/DownloadManagerWidget.h"
 
 #include "WizNoteStyle.h"
 #include "WizDocumentHistory.h"
@@ -69,9 +72,8 @@
 #include "WizDocumentSelectionView.h"
 #include "WizDocumentTransitionView.h"
 #include "WizMessageListView.h"
-
 #include "WizPopupButton.h"
-#include "widgets/WizUserInfoWidget.h"
+
 #include "sync/WizApiEntry.h"
 #include "sync/WizKMSync.h"
 #include "sync/WizAvatarHost.h"
@@ -84,24 +86,28 @@
 #include "share/WizAnalyzer.h"
 #include "share/WizTranslater.h"
 #include "share/WizThreads.h"
-#include "widgets/WizShareLinkDialog.h"
 
+#include "widgets/WizUserInfoWidget.h"
+#include "widgets/WizShareLinkDialog.h"
 #include "widgets/WizCustomToolBar.h"
 #include "widgets/WizTipsWidget.h"
+#include "widgets/WizExecutingActionDialog.h"
+#include "widgets/WizUserServiceExprDialog.h"
+#include "widgets/FileExportWizard.h"
+
 #include "WizPositionDelegate.h"
 #include "core/WizAccountManager.h"
 #include "share/WizWebEngineView.h"
-#include "widgets/WizExecutingActionDialog.h"
-#include "widgets/WizUserServiceExprDialog.h"
 #include "share/jsoncpp/json/json.h"
 #include "WizCellButton.h"
 #include "WizFileImporter.h"
 
 #include "api/ApiWizExplorerApp.h"
+#include "api/PublicAPIsServer.h"
 #include "jsplugin/JSPluginManager.h"
 #include "jsplugin/JSPluginSpec.h"
 #include "jsplugin/JSPlugin.h"
-#include "api/PublicAPIsServer.h"
+#include "jsplugin/JSRepl.h"
 
 #include "gui/tabbrowser/WizWebsiteView.h"
 #include "gui/tabbrowser/WizMainTabBrowser.h"
@@ -112,6 +118,8 @@
 #include "gui/documentviewer/WizDocumentWebView.h"
 #include "gui/documentviewer/WizEditorToolBar.h"
 #include "gui/documentviewer/WizSvgEditorDialog.h"
+#include "gui/documentviewer/CollaborationDocView.h"
+#include "gui/documentviewer/DocumentLoaderSaver.h"
 
 #define MAINWINDOW  "MainWindow"
 
@@ -141,7 +149,6 @@ WizMainWindow::WizMainWindow(WizDatabaseManager& dbMgr, QWidget *parent)
     , m_toolBar(new QToolBar("Main", titleBar()))
     , m_menu(new QMenu(clientWidget()))
     , m_spacerForToolButtonAdjust(nullptr)
-    , m_useSystemBasedStyle(m_settings->useSystemBasedStyle())
     , m_actions(new WizActions(*this, this))
     , m_category(new WizCategoryView(*this, this))
     , m_documents(new WizDocumentListView(*this, this))
@@ -149,7 +156,8 @@ WizMainWindow::WizMainWindow(WizDatabaseManager& dbMgr, QWidget *parent)
     , m_msgList(new WizMessageListView(dbMgr, this))
     , m_documentSelection(new WizDocumentSelectionView(*this, this))
     //, m_doc(new WizDocumentView(*this)) // 初始化文档视图，就把这个成员当成活动文档视图，QTabWidget说不要指定parent
-    , m_mainTabBrowser(new WizMainTabBrowser(*this, this)) // 初始化主标签栏
+    , m_mainTabBrowser(new WizMainTabBrowser(*this, this))
+    , m_documentPanel(nullptr)
     , m_history(new WizDocumentViewHistory())
     , m_animateSync(new WizAnimateAction(this))
     , m_singleViewMgr(new WizSingleDocumentViewManager(*this, this))
@@ -168,13 +176,16 @@ WizMainWindow::WizMainWindow(WizDatabaseManager& dbMgr, QWidget *parent)
     int ret = WizToolsSmartCompare("H", "d");
     qDebug() << ret;
 #endif
-    //TODO: 为什么不新建一个APP类把WizMainWindow的功能拆分呢？
+
     WizGlobal::setMainWindow(this);
     windowInstance = this;
     qRegisterMetaType<WIZGROUPDATA>("WIZGROUPDATA");
-    //
+
+    m_publicAPIsServer = new PublicAPIsServer(
+        {{"WizExplorerApp", m_IWizExplorerApp}}, this);
+
     initSyncQuick();
-    //
+
     initQuitHandler();
 
     // 多线程设置
@@ -209,17 +220,13 @@ WizMainWindow::WizMainWindow(WizDatabaseManager& dbMgr, QWidget *parent)
     initMenuBar();
     initDockMenu();
 #else
-    if (m_useSystemBasedStyle) {
-        initMenuBar();
-    } else {
-        initMenuList();
-    }
+    initMenuList();
 #endif
 
     initToolBar(); // 主菜单工具栏上的组件: <用户信息, 搜索栏...>
     initClient(); // 主界面容器组件: <文件夹树, 笔记列表, 多标签浏览...>
 
-    setWindowTitle(tr("WizNote"));
+    setWindowTitle(tr("WizNotePlus"));
 
     restoreStatus(); // 恢复上一次窗口设置
 
@@ -261,8 +268,18 @@ WizMainWindow::WizMainWindow(WizDatabaseManager& dbMgr, QWidget *parent)
         syncMessageTimer->start(3 * 1000 * 60);
     }
 
-    m_publicAPIsServer = new PublicAPIsServer(
-        {{"WizExplorerApp", m_IWizExplorerApp}}, this);
+    connect(Utils::WizLogger::logger(), &Utils::WizLogger::notifyRequested,
+            this, &WizMainWindow::showBubbleNotification);
+
+    m_docSaver = new WizDocumentSaverThread(dbMgr, this);
+    m_docLoader = new WizDocumentLoaderThread(dbMgr, this);
+
+    insertScrollbarStyleSheet(QWebEngineProfile::defaultProfile());
+    connect(QWebEngineProfile::defaultProfile(), &QWebEngineProfile::downloadRequested,
+            &DownloadManagerWidget::instance(), &DownloadManagerWidget::downloadRequested);
+
+    auto &jsmgr = JSPluginManager::instance();
+    jsmgr.setMainWindow(this);
 }
 
 
@@ -329,35 +346,78 @@ void WizMainWindow::cleanOnQuit()
 {
     m_quiting = true;
 
-    WizObjectDownloaderHost::instance()->waitForDone();
-    WizKMSyncThread::setQuickThread(nullptr);
+    int i = 0;
+    m_quitProgress = new QProgressDialog(this);
+    m_quitProgress->setWindowTitle(tr("Cleaning on Quit"));
+    m_quitProgress->setCancelButtonText(tr("Quit"));
+    m_quitProgress->setWindowModality(Qt::WindowModal);
+    m_quitProgress->setFixedWidth(400);
+    m_quitProgress->setMinimum(0);
+    m_quitProgress->setMaximum(11);
+    m_quitProgress->setValue(0);
 
-    m_category->saveExpandState();
-    saveStatus();
-
-    auto full = m_syncFull;
-    m_syncFull = nullptr;
-    full->waitForDone();
-
-    auto quick = m_syncQuick;
-    m_syncQuick = nullptr;
-    quick->waitForDone();
-
-    m_searcher->waitForDone();
+    connect(m_quitProgress, &QProgressDialog::canceled, [this] {
+        m_syncQuick->quit();
+        m_syncFull->quit();
+    });
 
     // 处理所有标签
+    m_quitProgress->setLabelText(tr("Closing opened documents..."));
     processAllDocumentViews([=](WizDocumentView* docView){
         docView->waitForDone();
     });
+    m_quitProgress->setValue(++i);
 
+    m_quitProgress->setLabelText(tr("Shutting object downloader host..."));
+    WizObjectDownloaderHost::instance()->waitForDone();
+    m_quitProgress->setValue(++i);
+
+    m_quitProgress->setLabelText(tr("Saving category tree expand state..."));
+    m_category->saveExpandState();
+    saveStatus();
+    m_quitProgress->setValue(++i);
+
+    m_quitProgress->setLabelText(tr("Shutting full sync thread..."));
+    m_syncFull->waitForDone();
+    m_quitProgress->setValue(++i);
+
+    m_quitProgress->setLabelText(tr("Shutting quick sync thread..."));
+    WizKMSyncThread::setQuickThread(nullptr);
+    m_syncQuick->waitForDone();
+    m_quitProgress->setValue(++i);
+
+    m_quitProgress->setLabelText(tr("Shutting search thread..."));
+    m_searcher->waitForDone();
+    m_quitProgress->setValue(++i);
+
+    m_quitProgress->setLabelText(tr("Shutting doc loader thread..."));
+    if (m_docLoader) {
+        m_docLoader->waitForDone();
+        m_docLoader = nullptr;
+    }
+    m_quitProgress->setValue(++i);
+
+    m_quitProgress->setLabelText(tr("Shutting doc saver thread..."));
+    if (m_docSaver) {
+        m_docSaver->waitForDone();
+        m_docSaver = nullptr;
+    }
+    m_quitProgress->setValue(++i);
+
+    m_quitProgress->setLabelText(tr("Shutting external editor launcher thread..."));
     m_externalEditorLauncher->waitForDone();
+    m_quitProgress->setValue(++i);
 
+    m_quitProgress->setLabelText(tr("Shutting mobile file receiver thread..."));
     if (m_mobileFileReceiver)
     {
         m_mobileFileReceiver->waitForDone();
     }
+    m_quitProgress->setValue(++i);
 
+    m_quitProgress->setLabelText(tr("Clearing thread pool..."));
     WizQueuedThreadsShutdown();
+    m_quitProgress->setValue(++i);
 }
 
 /**
@@ -451,26 +511,17 @@ void WizMainWindow::closeEvent(QCloseEvent* event)
 
 void WizMainWindow::mousePressEvent(QMouseEvent* event)
 {
-    if (m_useSystemBasedStyle)
-        QMainWindow::mousePressEvent(event);
-    else
-        _baseClass::mousePressEvent(event);
+    _baseClass::mousePressEvent(event);
 }
 
 void WizMainWindow::mouseMoveEvent(QMouseEvent* event)
 {
-    if (m_useSystemBasedStyle)
-        QMainWindow::mouseMoveEvent(event);
-    else
-        _baseClass::mouseMoveEvent(event);
+    _baseClass::mouseMoveEvent(event);
 }
 
 void WizMainWindow::mouseReleaseEvent(QMouseEvent* event)
 {
-    if (m_useSystemBasedStyle)
-        QMainWindow::mouseReleaseEvent(event);
-    else
-        _baseClass::mouseReleaseEvent(event);
+    _baseClass::mouseReleaseEvent(event);
 }
 
 void WizMainWindow::changeEvent(QEvent* event)
@@ -487,19 +538,13 @@ void WizMainWindow::changeEvent(QEvent* event)
             WizDatabase::clearCertPassword();
         }
     }
-    //
-    if (m_useSystemBasedStyle)
-        QMainWindow::changeEvent(event);
-    else
-        _baseClass::changeEvent(event);
+
+    _baseClass::changeEvent(event);
 }
 
 void WizMainWindow::moveEvent(QMoveEvent* ev)
 {
-    if (m_useSystemBasedStyle)
-        QMainWindow::changeEvent(ev);
-    else
-        _baseClass::changeEvent(ev);
+    _baseClass::changeEvent(ev);
 
     WizPositionDelegate& delegate = WizPositionDelegate::instance();
     delegate.mainwindowPositionChanged(ev->oldPos(), ev->pos());
@@ -637,13 +682,8 @@ void WizMainWindow::on_quickSync_request(const QString& strKbGUID)
     m_syncQuick->addQuickSyncKb(strKbGUID);
 }
 
-/**
- * @brief 设置系统托盘图标是否课件
- * @param bVisible
- */
 void WizMainWindow::setSystemTrayIconVisible(bool bVisible)
 {
-//        //
     if (!m_tray)
     {
         m_tray = new WizTrayIcon(*this, QApplication::windowIcon(), this);
@@ -652,6 +692,9 @@ void WizMainWindow::setSystemTrayIconVisible(bool bVisible)
     }
 
     m_tray->setVisible(bVisible);
+    // We don't want to quit application when the last window is closed if we
+    // are using SystemTrayIcon.
+    qApp->setQuitOnLastWindowClosed(!bVisible);
 }
 
 /**
@@ -741,8 +784,6 @@ void WizMainWindow::on_viewMessage_request(const WIZMESSAGEDATA& msg)
             && !m_dbMgr.db(msg.kbGUID).documentFromGuid(msg.documentGUID, doc)
             )
     {
-        //FIXME: 在当前文档视图弹出消息，但如果新标签是网页呢？
-        //m_doc->promptMessage(tr("Can't find note %1 , may be it has been deleted.").arg(msg.title));
         QMessageBox::information(this, tr("Warning"), tr("Can't find note %1 , may be it has been deleted.").arg(msg.title));
         return;
     }
@@ -823,7 +864,6 @@ void WizMainWindow::handleTrayIconActived(QSystemTrayIcon::ActivationReason reas
 
 void WizMainWindow::shiftVisableStatus()
 {
-    qDebug() << "windowState: " + QString::number(windowState(), 8);
     switch(windowState()) {
         case Qt::WindowNoState:
             // Normal window, but de-activated
@@ -845,8 +885,6 @@ void WizMainWindow::shiftVisableStatus()
             showNormal();
             break;
     }
-
-    qDebug() << "windowState: " + QString::number(windowState(), 8);
 
     if (isVisible()) {
         // Actovate main window
@@ -928,9 +966,6 @@ void WizMainWindow::restoreStatus()
 
 void WizMainWindow::initQuitHandler()
 {
-#ifndef Q_OS_MAC
-    connect(qApp, SIGNAL(lastWindowClosed()), qApp, SLOT(quit())); // Qt bug: Qt5 bug
-#endif
     connect(qApp, SIGNAL(aboutToQuit()), SLOT(on_application_aboutToQuit()));
     qApp->installEventFilter(this);
 
@@ -979,7 +1014,7 @@ void WizMainWindow::initSyncFull()
 void WizMainWindow::initSyncQuick()
 {
     WizKMSyncThread::setQuickThread(m_syncQuick);
-    //
+
     connect(m_syncQuick, SIGNAL(promptFreeServiceExpr(WIZGROUPDATA)), SLOT(on_promptFreeServiceExpr(WIZGROUPDATA)));
     connect(m_syncQuick, SIGNAL(promptVipServiceExpr(WIZGROUPDATA)), SLOT(on_promptVipServiceExpr(WIZGROUPDATA)));
 }
@@ -989,14 +1024,14 @@ void WizMainWindow::initSyncQuick()
  */
 void WizMainWindow::initActions()
 {
-#ifdef Q_OS_LINUX
-    m_actions->init(!m_useSystemBasedStyle);
-#else
+#ifdef Q_OS_MAC
     m_actions->init();
+#else
+    m_actions->init(true);
 #endif
     m_animateSync->setAction(m_actions->actionFromName(WIZACTION_GLOBAL_SYNC));
     m_animateSync->setSingleIcons("sync");
-    //
+
     connect(m_actions, SIGNAL(insertTableSelected(int,int)), SLOT(on_actionMenuFormatInsertTable(int,int)));
     //FIXME: 已经不是唯一文档视图，不应该在初始化阶段绑定
     //connect(m_doc->web(), SIGNAL(statusChanged(const QString&)), SLOT(on_editor_statusChanged(const QString&)));
@@ -1015,8 +1050,21 @@ void setActionCheckState(const QList<QAction*>& actionList, int type)
     }
 }
 
-/**
- * @brief 初始化“系统菜单风格”菜单条
+/*!
+    WizNote custom style menu list initialization
+ */
+void WizMainWindow::initMenuList()
+{
+    m_actions->buildMenuList(m_menu, Utils::WizPathResolve::resourcesPath() + "files/mainmenu.ini", m_windowListMenu);
+
+    initMenuActionState();
+
+    initViewTypeActionGroup();
+    initSortTypeActionGroup();
+}
+
+/*!
+    System style menu bar initialization    
  */
 void WizMainWindow::initMenuBar()
 {
@@ -1024,6 +1072,15 @@ void WizMainWindow::initMenuBar()
     setMenuBar(m_menuBar);
     m_actions->buildMenuBar(m_menuBar, Utils::WizPathResolve::resourcesPath() + "files/mainmenu.ini", m_windowListMenu);
 
+    initMenuActionState();
+
+    initViewTypeActionGroup();
+    initSortTypeActionGroup();
+
+}
+
+void WizMainWindow::initMenuActionState()
+{
     connect(m_windowListMenu, SIGNAL(aboutToShow()), SLOT(resetWindowMenu()));
     connect(m_singleViewMgr, SIGNAL(documentViewerClosed(QString)),
             SLOT(removeWindowsMenuItem(QString)));
@@ -1035,7 +1092,10 @@ void WizMainWindow::initMenuBar()
     m_actions->actionFromName(WIZCATEGORY_OPTION_TAGS)->setCheckable(true);
     m_actions->actionFromName(WIZCATEGORY_OPTION_BIZGROUPS)->setCheckable(true);
     m_actions->actionFromName(WIZCATEGORY_OPTION_PERSONALGROUPS)->setCheckable(true);
-    m_actions->actionFromName(WIZACTION_GLOBAL_SHOW_SUB_FOLDER_DOCUMENTS)->setCheckable(true);
+    m_actions->actionFromName(WIZACTION_GLOBAL_SHOW_SUBFOLDER_DOC)->setCheckable(true);
+    m_actions->actionFromName(WIZLAYOUT_CATEGORY_VIEW)->setCheckable(true);
+    m_actions->actionFromName(WIZLAYOUT_DOCUMENTLIST_VIEW)->setCheckable(true);
+    m_actions->actionFromName(WIZLAYOUT_TAB_BROWSER)->setCheckable(true);
 
     bool checked = m_category->isSectionVisible(Section_MessageCenter);
     m_actions->actionFromName(WIZCATEGORY_OPTION_MESSAGECENTER)->setChecked(checked);
@@ -1052,8 +1112,16 @@ void WizMainWindow::initMenuBar()
     m_actions->actionFromName(WIZCATEGORY_OPTION_BIZGROUPS)->setChecked(checked);
     checked = m_category->isSectionVisible(Section_PersonalGroups);
     m_actions->actionFromName(WIZCATEGORY_OPTION_PERSONALGROUPS)->setChecked(checked);
-    checked = userSettings().showSubFolderDocuments();
-    m_actions->actionFromName(WIZACTION_GLOBAL_SHOW_SUB_FOLDER_DOCUMENTS)->setChecked(checked);
+    checked = m_settings->showSubFolderDocuments();
+    m_actions->actionFromName(WIZACTION_GLOBAL_SHOW_SUBFOLDER_DOC)->setChecked(checked);
+
+    // GUI Layout
+    checked = m_settings->showLayoutCategoryView();
+    m_actions->actionFromName(WIZLAYOUT_CATEGORY_VIEW)->setChecked(checked);
+    checked = m_settings->showLayoutDocumentListView();
+    m_actions->actionFromName(WIZLAYOUT_DOCUMENTLIST_VIEW)->setChecked(checked);
+    checked = m_settings->showLayoutTabBrowser();
+    m_actions->actionFromName(WIZLAYOUT_TAB_BROWSER)->setChecked(checked);
 
     initViewTypeActionGroup();
     initSortTypeActionGroup();
@@ -1120,6 +1188,7 @@ void WizMainWindow::initSortTypeActionGroup() {
     setActionCheckState(m_sortTypeActions->actions(), sortType);
 }
 
+
 void WizMainWindow::initDockMenu()
 {
 #ifdef Q_OS_MAC
@@ -1134,6 +1203,9 @@ void WizMainWindow::on_editor_statusChanged(const QString& currentStyle)
 {
 }
 
+/*!
+    Download templates data if necessary
+ */
 void WizMainWindow::createNoteByTemplate(const TemplateData& tmplData)
 {
     QFileInfo info(tmplData.strFileName);
@@ -1144,78 +1216,63 @@ void WizMainWindow::createNoteByTemplate(const TemplateData& tmplData)
     else
     {
         qDebug() << "template file not exists : " << tmplData.strFileName;
-        //
         WizExecutingActionDialog::executeAction(tr("Downloading template..."), WIZ_THREAD_DEFAULT, [=]{
-            //
             bool ret = WizNoteManager::downloadTemplateBlocked(tmplData);
-            //
             ::WizExecuteOnThread(WIZ_THREAD_MAIN, [=]{
-
-                if (ret)
-                {
+                if (ret) {
                     createNoteByTemplateCore(tmplData);
-                }
-                else
-                {
-                    QMessageBox::warning(this, tr("Error"), tr("Can't download template from server. Please try again later."));
+                } else {
+                    QMessageBox::warning(this,
+                        tr("Error"), tr("Can't download template from server. Please try again later."));
                 }
             });
         });
     }
 }
 
-/**
- * @brief Create document from template.
- * @param tmplData Template information.
+/*!
+    Create document from template \a tmplData.
  */
 void WizMainWindow::createNoteByTemplateCore(const TemplateData& tmplData)
 {
     QFileInfo info(tmplData.strFileName);
-    //
     initVariableBeforCreateNote();
-    //
+
     QString kbGUID;
     WIZTAGDATA currTag;
     QString currLocation;
     m_category->getAvailableNewNoteTagAndLocation(kbGUID, currTag, currLocation);
-    //
+
     if (currLocation.isEmpty())
-    {
         currLocation = m_dbMgr.db(kbGUID).getDefaultNoteLocation();
-    }
-    //
-    WIZDOCUMENTDATA data;
+
+    WIZDOCUMENTDATAEX data;
     data.strKbGUID = kbGUID;
     data.strType = tmplData.buildInName;
-    //
     data.strTitle = tmplData.strTitle.isEmpty() ? info.completeBaseName() : tmplData.strTitle;
-    //  Journal {date}({week})
-    if (tmplData.strTitle.isEmpty())
-    {
+
+    // Journal {date}({week})
+    if (tmplData.strTitle.isEmpty()) {
         data.strTitle = tmplData.strName;
-    }
-    else
-    {
+    } else {
         WizOleDateTime dt;
         data.strTitle.replace("{date}", dt.toLocalLongDate());
         data.strTitle.replace("{date_time}", dt.toLocalLongDate() + " " + dt.toString("hh:mm:ss"));
         QLocale local;
         data.strTitle.replace("{week}", local.toString(dt.toLocalTime(), "ddd"));
     }
-    //
-    if (kbGUID.isEmpty())   //personal
-    {
+
+    // Personal
+    if (kbGUID.isEmpty()) {
+        data.strKbGUID = m_dbMgr.db().kbGUID();
         data.strLocation = tmplData.strFolder;
 
-        if (data.strLocation.isEmpty())
-        {
+        if (data.strLocation.isEmpty()) {
             data.strLocation = currLocation;
-        }
-        else
-        {
+        } else {
             data.strLocation.replace("{year}", QDate::currentDate().toString("yyyy"));
             data.strLocation.replace("{month}", QDate::currentDate().toString("MM"));
-            //
+
             if (WizCategoryViewFolderItem* folder = m_category->findFolder(data.strLocation, true, false))
             {
                 if (m_category->currentItem() != folder)
@@ -1224,19 +1281,23 @@ void WizMainWindow::createNoteByTemplateCore(const TemplateData& tmplData)
                 }
             }
         }
-    }
-    else        
-    {
+    } else {
         data.strLocation = currLocation;
     }
-    //
-    WizNoteManager noteManager(m_dbMgr);
-    if (!noteManager.createNoteByTemplate(data, currTag, tmplData.strFileName))
-        return;
 
-    bool isHandwriting = false;
+    // Actually create the note
+    WizNoteManager noteManager(m_dbMgr);
+    if (data.strType == "collaboration") {
+        CollaborationDocView *newView = new CollaborationDocView(data, *this, this);
+        newView->createDocument(currTag);
+        m_mainTabBrowser->createTab(newView);
+        return;
+    } else {
+        if (!noteManager.createNoteByTemplate(data, currTag, tmplData.strFileName))
+            return;
+    }
+
     if (data.strType == "svgpainter") {
-        isHandwriting = true;
         createHandwritingNote(m_dbMgr, data, this);
     }
 
@@ -1587,8 +1648,8 @@ void WizMainWindow::prepareNewNoteMenu()
 }
 
 
-/**
- * @brief 根据新建笔记菜单的选项来从模板创建笔记
+/*!
+    Decode templates data from action
  */
 void WizMainWindow::on_newNoteByExtraMenu_request()
 {
@@ -1783,74 +1844,53 @@ void WizMainWindow::layoutTitleBar()
 {
     WizWindowTitleBar* title = titleBar();
     title->titleLabel()->setVisible(false);
-    //
-    //
+
     QLayout* layout = new QVBoxLayout();
     layout->setSpacing(0);
     layout->setContentsMargins(0, 0, 0, 0);
-    //
-    QLayout* layoutTitle = new QHBoxLayout();
+
+    QHBoxLayout* layoutTitle = new QHBoxLayout();
     layoutTitle->setContentsMargins(0, 0, 0, 0);
+
     // 标题栏里组件区域大小，通过 margin 来控制
-    QLayout* layoutTitleBar = new QHBoxLayout();
-    int margin = WizSmartScaleUI(m_useSystemBasedStyle ? 4 : 10);
-    layoutTitleBar->setContentsMargins(margin, margin, margin, margin);
-    layoutTitleBar->addWidget(m_toolBar);
-    layoutTitle->addItem(layoutTitleBar);
-    //
-    QVBoxLayout* layoutRight = new QVBoxLayout();
+    QLayout* layoutToolBarContainer = new QHBoxLayout();
+
+    int margin = 4;
+
+    layoutToolBarContainer->setContentsMargins(0, margin, 0, margin);
+    layoutToolBarContainer->addWidget(m_toolBar);
+    layoutTitle->addItem(layoutToolBarContainer);
+    //layoutTitle->addStretch();
+
+    QHBoxLayout* layoutRight = new QHBoxLayout();
     layoutTitle->addItem(layoutRight);
-    //
-    QLayout* layoutBox = new QHBoxLayout();
-    layoutBox->setContentsMargins(0, WizSmartScaleUI(6), WizSmartScaleUI(6), 0);
-    layoutBox->setSpacing(WizSmartScaleUI(6));
-    layoutRight->addItem(layoutBox);
-    //
+
+    QLayout* layoutBtnBox = new QHBoxLayout();
+    layoutBtnBox->setContentsMargins(0, 0, 10, 0);
+    layoutBtnBox->setSpacing(8);
+    layoutRight->addItem(layoutBtnBox);
+
     m_menuButton = new QToolButton(this);
-    connect(m_menuButton, SIGNAL(clicked()), SLOT(on_menuButtonClicked()));
-    layoutBox->addWidget(m_menuButton);
-    layoutBox->addWidget(title->minButton());
-    layoutBox->addWidget(title->maxButton());
-    layoutBox->addWidget(title->closeButton());
+    m_menuButton->setObjectName("window-menu-btn");
+#ifndef Q_OS_MAC
+    connect(m_menuButton, &QToolButton::clicked, this, &WizMainWindow::on_menuButtonClicked);
+    setHitTestVisible(m_menuButton);
+    layoutBtnBox->addWidget(m_menuButton);
+    layoutBtnBox->addWidget(title->minButton());
+    layoutBtnBox->addWidget(title->maxButton());
+    layoutBtnBox->addWidget(title->closeButton());
+#else
+    rootWidget()->setContentsMargins(0, 0, 0, 0);
+    titleBar()->maxButton()->setVisible(false);
+    titleBar()->minButton()->setVisible(false);
+    titleBar()->closeButton()->setVisible(false);
+    m_menuButton->setVisible(false);
+#endif // Q_OS_MAC
 
-    QString themeName = Utils::WizStyleHelper::themeName();
-    QString strButtonMenu = ::WizGetSkinResourceFileName(themeName, "linuxwindowmenu");
-    QString strButtonMenuOn = ::WizGetSkinResourceFileName(themeName, "linuxwindowmenu_on");
-    QString strButtonMenuSelected = ::WizGetSkinResourceFileName(themeName, "linuxwindowmenu_selected");
-
-    m_menuButton->setStyleSheet(QString("QToolButton{ border-image:url(%1);}"
-                                   "QToolButton:hover{border-image:url(%2); background:none;}"
-                                   "QToolButton::pressed{border-image:url(%3); background:none;}")
-                           .arg(strButtonMenu).arg(strButtonMenuOn).arg(strButtonMenuSelected));
-    //
     QSize buttonSize = QSize(WizSmartScaleUI(16), WizSmartScaleUI(16));
-    m_menuButton->setFixedSize(buttonSize);
-    title->minButton()->setFixedSize(buttonSize);
-    title->maxButton()->setFixedSize(buttonSize);
-    title->closeButton()->setFixedSize(buttonSize);
-
-    if (m_useSystemBasedStyle)
-        m_menuButton->setVisible(false);
-    //
-    layoutRight->addStretch();
-    //
-    QLabel* label = new QLabel(this);
-    label->setFixedHeight(1);
-    label->setStyleSheet(QString("QLabel{background-color:#aeaeae; border: none;}"));
 
     layout->addItem(layoutTitle);
-    layout->addWidget(label);
     title->setLayout(layout);
-}
-
-/**
- * @brief 使用Wiz自定义风格初始化菜单
- */
-void WizMainWindow::initMenuList()
-{
-    m_actions->buildMenu(m_menu, Utils::WizPathResolve::resourcesPath() + "files/mainmenu.ini");
-    initViewTypeActionGroup();
-    initSortTypeActionGroup();
 }
 
 /**
@@ -1858,13 +1898,10 @@ void WizMainWindow::initMenuList()
  */
 void WizMainWindow::initToolBar()
 {
-
-    // 将标题工具栏添加到布局
-    clientLayout()->addWidget(m_toolBar);
-    // 根据是否使用系统标题栏样式来选择窗口样式
-    setWindowStyle(m_useSystemBasedStyle);
-    //
+    // m_toolBar will be added to titleBar
     layoutTitleBar();
+    setFrameBorderWidth(1);
+
     // main button size
     QSize iconSize = QSize(WizSmartScaleUI(16), WizSmartScaleUI(16));
     m_toolBar->setIconSize(iconSize);
@@ -1873,28 +1910,31 @@ void WizMainWindow::initToolBar()
     //m_toolBar->setToolButtonStyle(Qt::ToolButtonIconOnly); // 通过addWidget添加的QToolButton会忽视这个设置
     // align with categoryview's root item.
     m_toolBar->addWidget(new WizFixedSpacer(QSize(3, 1), m_toolBar));
-    //
+
     // 用户信息
     WizUserInfoWidget* info = new WizUserInfoWidget(*this, m_toolBar);
+    setHitTestVisible(info);
     m_toolBar->addWidget(info);
-    //
+
     m_toolBar->addWidget(new WizFixedSpacer(QSize(5, 1), m_toolBar));
     // 同步按钮
     WizButton* buttonSync = new WizButton(m_toolBar);
+    setHitTestVisible(buttonSync);
     buttonSync->setIconSize(QSize(16,16));
     buttonSync->setAction(m_actions->actionFromName(WIZACTION_GLOBAL_SYNC));
     m_toolBar->addWidget(buttonSync);
-    //
-    m_spacerForToolButtonAdjust = new WizFixedSpacer(QSize(20, 1), m_toolBar);
+
+    m_spacerForToolButtonAdjust = new WizFixedSpacer(QSize(10, 1), m_toolBar);
     m_toolBar->addWidget(m_spacerForToolButtonAdjust);
-    //
+
     // 搜索栏，值得注意搜索栏的长度随着笔记列表宽度而变化
     m_searchWidget = new WizSearchView(this);
+    setHitTestVisible(m_searchWidget);
     m_searchWidget->setFixedWidth(200);
     m_toolBar->addWidget(m_searchWidget);
-    //
-    m_toolBar->addWidget(new WizFixedSpacer(QSize(20, 1), m_toolBar));
-    //
+
+    m_toolBar->addWidget(new WizFixedSpacer(QSize(10, 1), m_toolBar));
+
     /*
     // 前一篇文档
     WizButton* buttonBack = new WizButton(m_toolBar);
@@ -1907,32 +1947,28 @@ void WizMainWindow::initToolBar()
     buttonForward->setAction(m_actions->actionFromName(WIZACTION_GLOBAL_GOFORWARD));
     m_toolBar->addWidget(buttonForward);
     */
-    //
-    m_toolBar->addWidget(new WizFixedSpacer(QSize(20, 1), m_toolBar));
-    //
+
     // 新建笔记[+]菜单
     prepareNewNoteMenu();
-    //
+
     QAction* newNoteAction = m_actions->actionFromName(WIZACTION_GLOBAL_NEW_DOCUMENT);
-    //newNoteAction->setIcon(::WizLoadSkinIcon(this->userSettings().skin(), "toolButtonNewNote"));
-    //
-    //QToolButton* buttonNew = new QToolButton(m_toolBar);
     QToolButton* buttonNew = new QToolButton(m_toolBar);
-    buttonNew->setStyle(new WizNotePlusStyle("fusion"));
+    buttonNew->setObjectName("btn-newnote");
+    setHitTestVisible(buttonNew);
     buttonNew->setMenu(m_newNoteExtraMenu);//选择模板的菜单
-    buttonNew->setDefaultAction(newNoteAction);//m_newNoteExtraMenu->actionAt(QPoint(0 ,0)));
+    buttonNew->setDefaultAction(newNoteAction);
     buttonNew->setPopupMode(QToolButton::MenuButtonPopup);
     buttonNew->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     buttonNew->setAutoRaise(true);
-    //buttonNew->setAction(newNoteAction);
+
     m_toolBar->addWidget(buttonNew);
     m_toolBar->addWidget(new WizFixedSpacer(QSize(5, 1), m_toolBar));
     initToolBarPluginButtons();
-    //
+
     m_toolBar->addWidget(new WizSpacer(m_toolBar));
 
     updateHistoryButtonStatus();
-    //
+
     connect(m_searchWidget, SIGNAL(doSearch(const QString&)), SLOT(on_search_doSearch(const QString&)));
 }
 
@@ -1940,6 +1976,37 @@ void WizMainWindow::initToolBar()
 void WizMainWindow::initToolBarPluginButtons()
 {
     JSPluginManager &jsPluginMgr = JSPluginManager::instance();
+
+    auto menus = jsPluginMgr.modulesByModuleType("Menu");
+    foreach (auto menuData, menus) {
+        if (menuData->spec()->buttonLocation() != "Main")
+            continue;
+        auto btn = new QToolButton(this);
+        btn->setPopupMode(QToolButton::MenuButtonPopup);
+        QMenu *m = new QMenu(btn);
+        foreach (int i, menuData->spec()->actionIndexes()) {
+            auto parent = menuData->parentPlugin();
+            auto acm = parent->module(i);
+            QAction *ac = jsPluginMgr.createPluginAction(btn, acm);
+            m->addAction(ac);
+            connect(ac, &QAction::triggered, this,
+                    [this, btn, ac] (bool checked) {
+                        QRect rc = btn->rect();
+                        QPoint pt = btn->mapToGlobal(QPoint(rc.width()/2, rc.height()));
+                        Q_EMIT pluginPopupRequest(ac, pt);
+                    }
+            );
+        }
+
+        btn->setMenu(m);
+        auto acs = m->actions();
+        if (!acs.isEmpty()) {
+            btn->setDefaultAction(acs.first());
+            m_toolBar->addWidget(btn);
+            setHitTestVisible(btn);
+        }
+    }
+
     QList<JSPluginModule *> modules = jsPluginMgr.modulesByKeyValue("ModuleType", "Action");
     for (auto moduleData : modules) {
         if (moduleData->spec()->buttonLocation() != "Main")
@@ -1949,7 +2016,12 @@ void WizMainWindow::initToolBarPluginButtons()
             &jsPluginMgr, &JSPluginManager::handlePluginActionTriggered);
 
         m_toolBar->addAction(ac);
+
+        setHitTestVisible(m_toolBar->widgetForAction(ac));
     }
+
+    connect(this, &WizMainWindow::pluginPopupRequest,
+            &jsPluginMgr, &JSPluginManager::handlePluginPopupRequest);
 }
 
 /**
@@ -1959,13 +2031,13 @@ void WizMainWindow::initClient()
 {
 
     setCentralWidget(rootWidget());
-    //
+
     QWidget* main = clientWidget();
-    //
+
     m_clienWgt = new QWidget(main);
     clientLayout()->addWidget(m_clienWgt);
 
-    m_clienWgt->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
+    m_clienWgt->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
 
     QPalette pal = m_clienWgt->palette();
     pal.setColor(QPalette::Window, QColor(Qt::transparent));
@@ -1989,21 +2061,21 @@ void WizMainWindow::initClient()
     // 绘制笔记浏览页面
     pal.setColor(QPalette::Window, QColor(Qt::white));
     pal.setColor(QPalette::Base, QColor(Qt::white));
-    QWidget* documentPanel = new QWidget(this); // 整个文档浏览界面板
-    documentPanel->setPalette(pal);
-    documentPanel->setAutoFillBackground(true);
+    m_documentPanel = new QWidget(this); // 整个文档浏览界面板
+    m_documentPanel->setObjectName("document-panel");
+    m_documentPanel->setPalette(pal);
+    m_documentPanel->setAutoFillBackground(true);
     QVBoxLayout* layoutDocument = new QVBoxLayout();
     layoutDocument->setContentsMargins(0, 0, 0, 0);
     layoutDocument->setSpacing(0);
-    documentPanel->setLayout(layoutDocument);
+    m_documentPanel->setLayout(layoutDocument);
     // WizMainTab
     layoutDocument->addWidget(m_mainTabBrowser); // 将主标签栏放在文档板布局上
     connect(m_mainTabBrowser, SIGNAL(currentChanged(int)), SLOT(on_mainTabWidget_currentChanged(int)));
-    //m_mainTabBrowser->createTab(QUrl::fromUserInput("https://www.wiz.cn")); // 默认打开Wiz主页
     showHomePage();
     //
     layoutDocument->addWidget(m_documentSelection);
-    m_documentSelection->hide(); // 这个是什么东西？
+    m_documentSelection->hide();
     // append after client
 
     m_splitter->addWidget(m_category);
@@ -2019,64 +2091,70 @@ void WizMainWindow::initClient()
     layoutList->addWidget(createMessageListView());
     m_docListContainer->setLayout(layoutList);
     m_splitter->addWidget(m_docListContainer);
-    m_splitter->addWidget(documentPanel);
+    m_splitter->addWidget(m_documentPanel);
     m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 0);
     m_splitter->setStretchFactor(2, 1);
 
-    // set minimum width
-    bool isHighPix = WizIsHighPixel();
-    setMinimumWidth(isHighPix ? 785 : 985);
-    m_category->setMinimumWidth(isHighPix ? 76 : 165);
-    m_docListContainer->setMinimumWidth(isHighPix ? 113 : 244);
-    //
     m_msgListWidget->hide();
-    //
+
     connect(m_splitter.get(), SIGNAL(splitterMoved(int, int)), SLOT(on_client_splitterMoved(int, int)));
+
+    bool show = m_settings->showLayoutCategoryView();
+    m_category->setVisible(show);
+    show = m_settings->showLayoutDocumentListView();
+    m_docListContainer->setVisible(show);
+    show = m_settings->showLayoutTabBrowser();
+    m_documentPanel->setVisible(show);
 }
 
+/* Document list view with additional toolbar. **/
 QWidget* WizMainWindow::createNoteListView()
 {
     m_noteListWidget = new QWidget(this);
-    m_noteListWidget->setMinimumWidth(100);
+    //m_noteListWidget->setMinimumWidth(100);
+
     QVBoxLayout* layoutList = new QVBoxLayout();
     layoutList->setContentsMargins(0, 0, 0, 0);
     layoutList->setSpacing(0);
     m_noteListWidget->setLayout(layoutList);
-//    m_noteListWidget->setStyleSheet("background-color:#F5F5F5;");
+
     QPalette pal = m_noteListWidget->palette();
     pal.setColor(QPalette::Window, QColor("#F5F5F5"));
     pal.setColor(QPalette::Base, QColor("#F5F5F5"));
     m_noteListWidget->setPalette(pal);
     m_noteListWidget->setAutoFillBackground(true);
 
-    QWidget* noteButtonsContainer = new QWidget(this);
-    noteButtonsContainer->setFixedHeight(::WizSmartScaleUI(30));
-    QHBoxLayout* layoutButtonContainer = new QHBoxLayout();
-    layoutButtonContainer->setContentsMargins(0, 0, 0, 0);
-    layoutButtonContainer->setSpacing(0);
-    noteButtonsContainer->setLayout(layoutButtonContainer);
+    // A Toolbar to control document list behavior.
+    auto noteButtonsContainer = new QWidget(this);
+    noteButtonsContainer->setObjectName("note-buttons-container");
+    noteButtonsContainer->setFixedHeight(30);
+    noteButtonsContainer->setContentsMargins(0, 0, 0, 0);
 
     QHBoxLayout* layoutActions = new QHBoxLayout();
-    layoutActions->setContentsMargins(0, 0, 0, 0); // 设置布局内容右边界为12
-    layoutActions->setSpacing(0); // 设置按钮之间的间隔
+    layoutActions->setContentsMargins(0, 0, 0, 0);
+    layoutActions->setSpacing(0);
+    noteButtonsContainer->setLayout(layoutActions);
 
+    // Control document list view type.
     WizViewTypePopupButton* viewBtn = new WizViewTypePopupButton(*this, this);
-    viewBtn->setFixedHeight(Utils::WizStyleHelper::listViewSortControlWidgetHeight()); // 设置组件最大高度，不改变宽短
+    viewBtn->setObjectName("btn-view-type");
     connect(viewBtn, SIGNAL(viewTypeChanged(int)), SLOT(on_documents_viewTypeChanged(int)));
     connect(this, SIGNAL(documentsViewTypeChanged(int)), viewBtn, SLOT(on_viewTypeChanged(int)));
     layoutActions->addWidget(viewBtn);
 
+    // Control document list sorting type.
     WizSortingPopupButton* sortBtn = new WizSortingPopupButton(*this, this);
-    sortBtn->setFixedHeight(Utils::WizStyleHelper::listViewSortControlWidgetHeight());
+    sortBtn->setObjectName("btn-sorting");
     connect(sortBtn, SIGNAL(sortingTypeChanged(int)), SLOT(on_documents_sortingTypeChanged(int)));
     connect(this, SIGNAL(documentsSortTypeChanged(int)), sortBtn, SLOT(on_sortingTypeChanged(int)));
     layoutActions->addWidget(sortBtn);
     layoutActions->addStretch(0);
 
+    // A label to remind group user of unreading documents.
     m_labelDocumentsHint = new QLabel(this);
+    m_labelDocumentsHint->setObjectName("label-documents-hint");
     m_labelDocumentsHint->setText(tr("Unread documents"));
-    m_labelDocumentsHint->setStyleSheet("color: #A7A7A7; font-size:14px; padding-top:2px; margin-right:6px;"); //font: 12px;
     layoutActions->addWidget(m_labelDocumentsHint);
 //    connect(m_category, SIGNAL(documentsHint(const QString&)), SLOT(on_documents_hintChanged(const QString&)));
 
@@ -2086,40 +2164,30 @@ QWidget* WizMainWindow::createNoteListView()
 //    connect(m_documents, SIGNAL(documentCountChanged()), SLOT(on_documents_documentCountChanged()));
     connect(m_documents, SIGNAL(changeUploadRequest(QString)), SLOT(on_quickSync_request(QString)));
 
-
-//    //sortBtn->setStyleSheet("padding-top:10px;");
-//    m_labelDocumentsCount->setStyleSheet("color: #787878;padding-bottom:1px;"); //font: 12px;
-//    m_btnMarkDocumentsReaded->setVisible(false);
-//    m_labelDocumentsHint->setVisible(false);
-
+    // A 'check' icon to mark all documents read
     m_btnMarkDocumentsReaded = new WizImageButton(this);
+    m_btnMarkDocumentsReaded->setObjectName("btn-mark-documents-readed");
     QIcon btnIcon = ::WizLoadSkinIcon(Utils::WizStyleHelper::themeName(), "actionMarkMessagesRead");
     m_btnMarkDocumentsReaded->setIcon(btnIcon);
     m_btnMarkDocumentsReaded->setFixedSize(QSize(18, 18));
     m_btnMarkDocumentsReaded->setToolTip(tr("Mark all documents read"));
     connect(m_btnMarkDocumentsReaded, SIGNAL(clicked()), SLOT(on_btnMarkDocumentsRead_triggered()));
     layoutActions->addWidget(m_btnMarkDocumentsReaded);
+    layoutActions->addSpacing(4);
 
     m_labelDocumentsHint->setVisible(false);
     m_btnMarkDocumentsReaded->setVisible(false);
 
-    layoutButtonContainer->addLayout(layoutActions);
-    
-    QWidget* line2 = new QWidget(this);
-    line2->setFixedHeight(1);
-    line2->setStyleSheet("border-top-width:1;border-top-style:solid;border-top-color:#DADAD9");
-
     layoutList->addWidget(noteButtonsContainer);
-    layoutList->addWidget(line2);
     layoutList->addWidget(m_documents);
 
     return m_noteListWidget;
 }
 
-QWidget*WizMainWindow::createMessageListView()
+QWidget* WizMainWindow::createMessageListView()
 {
     m_msgListWidget = new QWidget(this);
-    m_msgListWidget->setMinimumWidth(100);
+    //m_msgListWidget->setMinimumWidth(100);
     QVBoxLayout* layoutList = new QVBoxLayout();
     layoutList->setContentsMargins(0, 0, 0, 0);
     layoutList->setSpacing(0);
@@ -2142,22 +2210,12 @@ QWidget*WizMainWindow::createMessageListView()
     titleBarLayout->setSpacing(0);
     titleBarLayout->addWidget(m_msgListTitleBar);
 
-    QWidget* placeHoldWgt = new QWidget(this);
-    placeHoldWgt->setFixedSize(13, WizSmartScaleUI(20));
-    placeHoldWgt->setStyleSheet("border-left:1px solid #E7E7E7;");
     QHBoxLayout* layout2 = new QHBoxLayout();
     layout2->setContentsMargins(0, 0, 0, 0);
     layout2->setSpacing(0);
-    layout2->addWidget(placeHoldWgt);
     titleBarLayout->addLayout(layout2);
 
-
-    QWidget* line2 = new QWidget(this);
-    line2->setFixedHeight(1);
-    line2->setStyleSheet("margin-right:12px; border-top-width:1;border-top-style:solid;border-top-color:#DADAD9");
-
     layoutList->addLayout(titleBarLayout);
-    layoutList->addWidget(line2);
     layoutList->addWidget(m_msgList);
     m_msgList->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
 
@@ -2347,7 +2405,7 @@ void WizMainWindow::on_syncStarted(bool syncAll)
     {
         m_animateSync->startPlay();
     }
-    //
+
     if (syncAll)
     {
         qDebug() << "[Sync] Syncing all notes...";
@@ -2361,9 +2419,7 @@ void WizMainWindow::on_syncStarted(bool syncAll)
 void WizMainWindow::on_syncDone(int nErrorCode, bool isNetworkError, const QString& strErrorMsg, bool isBackground)
 {
     m_animateSync->stopPlay();
-    //
 
-    //
     if (isXMLRpcErrorCodeRelatedWithUserAccount(nErrorCode))
     {
         qDebug() << "sync done reconnectServer";
@@ -2390,7 +2446,6 @@ void WizMainWindow::on_syncDone(int nErrorCode, bool isNetworkError, const QStri
             m_tray->showMessage(tr("Sync failed"), tr("Bad network connection, can not sync now. Please try again later. (code: %1)").arg(nErrorCode), icon, delay, param);
             return;
         } else {
-            //
             QString message = tr("There is something wrong with sync service. Please try again later. (code: %1)").arg(nErrorCode);
             if (WIZKM_XMLRPC_ERROR_VIP_SERVICE_EXPR == nErrorCode) {
                 message = QObject::tr("VIP service of has expired, please renew to VIP.");
@@ -2403,12 +2458,11 @@ void WizMainWindow::on_syncDone(int nErrorCode, bool isNetworkError, const QStri
             } else if (WIZKM_XMLRPC_ERROR_NOTE_COUNT_LIMIT == nErrorCode) {
                 message = WizFormatString0(QObject::tr("Group notes count limit exceeded!"));
             }
-            //
+
             m_tray->showMessage(tr("Sync failed"), message, icon, delay, param);
             return;
         }
     }
-    //
 
     m_documents->viewport()->update();
     m_category->updateGroupsData();
@@ -2640,18 +2694,49 @@ void WizMainWindow::on_actionEditingDelete_triggered()
 
 void WizMainWindow::on_actionViewToggleCategory_triggered()
 {
-    WizGetAnalyzer().logAction("MenuBarToggleCategory");
+    static bool off = true;
 
-    QWidget* category = m_splitter->widget(0);
-    if (category->isVisible()) {
-        category->hide();
-        m_docListContainer->hide();
+    if (off) {
+        if (userSettings().showLayoutCategoryView())
+            on_actionLayoutCategoryView_triggered();
+        if (userSettings().showLayoutDocumentListView())
+            on_actionLayoutDocumentListView_triggered();
     } else {
-        category->show();
-        m_docListContainer->show();
+        if (!userSettings().showLayoutCategoryView())
+            on_actionLayoutCategoryView_triggered();
+        if (!userSettings().showLayoutDocumentListView())
+            on_actionLayoutDocumentListView_triggered();
     }
 
     m_actions->toggleActionText(WIZACTION_GLOBAL_TOGGLE_CATEGORY);
+    off = !off;
+}
+
+void WizMainWindow::on_actionLayoutCategoryView_triggered()
+{
+    bool show = !userSettings().showLayoutCategoryView();
+    userSettings().setShowLayoutCategoryView(show);
+
+    m_category->setVisible(show);
+    m_actions->actionFromName(WIZLAYOUT_CATEGORY_VIEW)->setChecked(show);
+}
+
+void WizMainWindow::on_actionLayoutDocumentListView_triggered()
+{
+    bool show = !userSettings().showLayoutDocumentListView();
+    userSettings().setShowLayoutDocumentListView(show);
+
+    m_docListContainer->setVisible(show);
+    m_actions->actionFromName(WIZLAYOUT_DOCUMENTLIST_VIEW)->setChecked(show);
+}
+
+void WizMainWindow::on_actionLayoutTabBrowser_triggered()
+{
+    bool show = !userSettings().showLayoutTabBrowser();
+    userSettings().setShowLayoutTabBrowser(show);
+
+    m_documentPanel->setVisible(show);
+    m_actions->actionFromName(WIZLAYOUT_TAB_BROWSER)->setChecked(show);
 }
 
 void WizMainWindow::on_actionViewShowSubFolderDocuments_triggered()
@@ -2659,9 +2744,8 @@ void WizMainWindow::on_actionViewShowSubFolderDocuments_triggered()
     bool show = !userSettings().showSubFolderDocuments();
     userSettings().setShowSubFolderDocuments(show);
     on_category_itemSelectionChanged();
-    //
-    actions()->actionFromName(WIZACTION_GLOBAL_SHOW_SUB_FOLDER_DOCUMENTS)->setChecked(show);
-    //
+
+    actions()->actionFromName(WIZACTION_GLOBAL_SHOW_SUBFOLDER_DOC)->setChecked(show);
 }
 
 #ifdef Q_OS_MAC
@@ -2724,6 +2808,11 @@ void WizMainWindow::on_actionBringFront_triggered()
 //    {
 //        wgt->setVisible(true);
 //    }
+}
+
+void WizMainWindow::on_actionOpenWelcomePage_triggered()
+{
+    showHomePage();
 }
 
 void WizMainWindow::on_actionCategoryMessageCenter_triggered()
@@ -2869,6 +2958,11 @@ void WizMainWindow::on_actionSortBySize_triggered()
     changeDocumentsSortTypeByAction(action);
 }
 
+void WizMainWindow::on_actionSkinReloadStyleSheet_triggered()
+{
+    qApp->setStyleSheet(WizLoadSkinStyleSheet(userSettings().skin()));
+}
+
 #define MARKDOCUMENTSREADCHECKED       "MarkDocumentsReadedChecked"
 #include <functional>
 
@@ -2978,6 +3072,18 @@ void WizMainWindow::on_actionMenuFormatStrikeThrough_triggered()
 {
     WizGetAnalyzer().logAction("MenuBarStrikeThrough");
     getActiveEditor()->editorCommandExecuteStrikeThrough();
+}
+
+void WizMainWindow::on_actionMenuFormatSubscript_triggered()
+{
+    WizGetAnalyzer().logAction("MenuBarSubscript");
+    getActiveEditor()->editorCommandExecuteSubScript();
+}
+
+void WizMainWindow::on_actionMenuFormatSuperscript_triggered()
+{
+    WizGetAnalyzer().logAction("MenuBarSuperscript");
+    getActiveEditor()->editorCommandExecuteSuperScript();
 }
 
 void WizMainWindow::on_actionMenuFormatInsertHorizontal_triggered()
@@ -3147,6 +3253,17 @@ void WizMainWindow::resetSearchStatus()
     m_category->restoreSelection();
 }
 
+void WizMainWindow::on_actionDownloadManager_triggered()
+{
+    DownloadManagerWidget::instance().show();
+}
+
+void WizMainWindow::on_actionJSConsole_triggered()
+{
+    auto repl = new JSRepl({{"WizExplorerApp", publicAPIsObject()}});
+    repl->show();
+}
+
 void WizMainWindow::on_actionResetSearch_triggered()
 {
     resetSearchStatus();
@@ -3199,6 +3316,13 @@ void WizMainWindow::on_actionImportFile_triggered()
         m_category->on_action_importFile();
     }
     WizGetAnalyzer().logAction("MenuBarImportFile");
+}
+
+void WizMainWindow::on_actionExportFile_triggered()
+{
+    FileExportWizard dialog(*this, this);
+    dialog.exec();
+    WizGetAnalyzer().logAction("MenuBarExportFile");
 }
 
 void WizMainWindow::on_actionPrintMargin_triggered()
@@ -3298,9 +3422,8 @@ void WizMainWindow::on_menuButtonClicked()
     QWidget* wgt = qobject_cast<QWidget*>(sender());
     if (wgt)
     {
-        QPoint popupPoint = clientWidget()->mapToGlobal(QPoint(wgt->pos().x(),
-                                                                 wgt->pos().y() + wgt->height()));
-        popupPoint.setY(popupPoint.y() - titleBar()->height());
+        QPoint popupPoint = clientWidget()->mapToGlobal(
+            QPoint(wgt->pos().x(), wgt->pos().y() + wgt->height()));
         m_menu->popup(popupPoint);
     }
 }
@@ -3483,8 +3606,9 @@ void WizMainWindow::on_documents_itemDoubleClicked(QListWidgetItem* item)
     if (pItem)
     {
         WIZDOCUMENTDATA doc = pItem->document();
-        if (m_dbMgr.db(doc.strKbGUID).isDocumentDownloaded(doc.strGUID))
-        {
+        if (doc.strType == "collaboration") {
+            viewDocument(doc);
+        } else if (m_dbMgr.db(doc.strKbGUID).isDocumentDownloaded(doc.strGUID)) {
             viewNoteInSeparateWindow(doc);
             resortDocListAfterViewDocument(doc);
         }
@@ -3499,18 +3623,15 @@ void WizMainWindow::on_options_settingsChanged(WizOptionsType type)
 {
     switch (type) {
     case wizoptionsNoteView:
-        //FIXME: 应该处理所有文档视图
         processAllDocumentViews([=](WizDocumentView* docView){
             docView->settingsChanged();
         });
-        //m_doc->settingsChanged();
         break;
     case wizoptionsSync:
         m_syncFull->setFullSyncInterval(userSettings().syncInterval());
         break;
     case wizoptionsFont:
     {
-        //FIXME: 应该处理所有文档视图
         processAllDocumentViews([=](WizDocumentView* docView){
             docView->web()->editorResetFont();
         });
@@ -3527,11 +3648,9 @@ void WizMainWindow::on_options_settingsChanged(WizOptionsType type)
         m_category->sortItems(0, Qt::AscendingOrder);
         break;
     case wizoptionsSpellCheck:
-        //FIXME: 应该处理所有文档视图
         processAllDocumentViews([=](WizDocumentView* docView){
             docView->web()->editorResetSpellCheck();
         });
-        //m_doc->web()->editorResetSpellCheck();
         break;
     default:
         break;
@@ -3654,12 +3773,22 @@ WizDocumentView* WizMainWindow::createDocumentView()
 {
     //FIXME: This function will take about 1200 milliseconds.
     WizDocumentView* newDocView = new WizDocumentView(*this);
+    auto newWebView = newDocView->web();
 
     // Binding signals
     //-------------------------------------------------------------------
 
-    connect(newDocView->web(), SIGNAL(shareDocumentByLinkRequest(QString,QString)),
-            SLOT(on_shareDocumentByLink_request(QString,QString)));
+    connect(newWebView, &WizDocumentWebView::loadDocumentRequested, m_docLoader, &WizDocumentLoaderThread::load);
+    connect(m_docLoader, &WizDocumentLoaderThread::loaded, newWebView, &WizDocumentWebView::onDocumentReady, Qt::QueuedConnection);
+    connect(m_docLoader, &WizDocumentLoaderThread::loadFailed, [this] {
+        QMessageBox::critical(this, tr("Error"), tr("Can't view note: (Can't unzip note data)"));
+    });
+
+    connect(newWebView, &WizDocumentWebView::saveDocumentRequested, m_docSaver, &WizDocumentSaverThread::save);
+    connect(m_docSaver, &WizDocumentSaverThread::saved, newWebView, &WizDocumentWebView::onDocumentSaved, Qt::QueuedConnection);
+
+    connect(newDocView, &WizDocumentView::shareDocumentByLinkRequest,
+            this, &WizMainWindow::on_shareDocumentByLink_request);
     connect(newDocView, SIGNAL(documentSaved(QString,WizDocumentView*)),
             m_singleViewMgr, SIGNAL(documentChanged(QString,WizDocumentView*)));
     connect(m_singleViewMgr, SIGNAL(documentChanged(QString,WizDocumentView*)),
@@ -3675,13 +3804,9 @@ WizDocumentView* WizMainWindow::createDocumentView()
     //-------------------------------------------------------------------
 
     newDocView->web()->setInSeperateWindow(false);
-    newDocView->commentWidget()->setMinimumWidth(195);
-    newDocView->web()->setMinimumWidth(576);
+    //newDocView->commentWidget()->setMinimumWidth(195);
+    //newDocView->web()->setMinimumWidth(576);
 
-    newDocView->setStyleSheet(QString("QLineEdit{border:1px solid #DDDDDD; border-radius:2px;}"));
-    newDocView->titleBar()->setStyleSheet(QString("QLineEdit{padding:0px; padding-left:-2px; padding-bottom:1px; border:0px; border-radius:0px;}"));
-
-    //
     return newDocView;
 }
 
@@ -3730,9 +3855,10 @@ void WizMainWindow::viewDocument(const WIZDOCUMENTDATAEX& data, bool addToHistor
 void WizMainWindow::viewDocument(const WIZDOCUMENTDATAEX& data)
 {
     Q_ASSERT(!data.strGUID.isEmpty());
+
     // 遍历tab，查找已经打开的标签中是否有该文档
     for (int i = 0; i < m_mainTabBrowser->count(); ++i) {
-        WizDocumentView* docView = qobject_cast<WizDocumentView*>(m_mainTabBrowser->widget(i));
+        AbstractDocumentView* docView = qobject_cast<AbstractDocumentView*>(m_mainTabBrowser->widget(i));
         if ( docView == nullptr ) {
             continue;
         } else {
@@ -3743,23 +3869,39 @@ void WizMainWindow::viewDocument(const WIZDOCUMENTDATAEX& data)
         }
 
     }
-    // 重置许可
+
     resetPermission(data.strKbGUID, data.strOwner);
-    //
+
     bool forceEditing = false;
     if (data.strGUID == m_documentForEditing.strGUID)
     {
         forceEditing = true;
         m_documentForEditing = WIZDOCUMENTDATA();
     }
-    WizDocumentView* newDocView = createDocumentView();
-    int index = m_mainTabBrowser->createTab(newDocView);
-    m_mainTabBrowser->setTabText(index, data.strTitle);
-    //TODO: directly invoke newDocView->viewNote() instead of signaling.
-    WizGlobal::emitViewNoteRequested(newDocView, data, forceEditing);
-    setCurrentDocumentView(newDocView); //FIXME: do not keep m_doc
-    //
+
+    AbstractDocumentView *view = nullptr;
+    if (data.strType == "collaboration") {
+        CollaborationDocView *newView = new CollaborationDocView(data, *this, this);
+        newView->setEditorMode(modeReader);
+        newView->loadDocument();
+        int index = m_mainTabBrowser->createTab(newView);
+        m_mainTabBrowser->setTabText(index, data.strTitle);
+        view = newView;
+    } else  {
+        WizDocumentView* newDocView = createDocumentView();
+        int index = m_mainTabBrowser->createTab(newDocView);
+        m_mainTabBrowser->setTabText(index, data.strTitle);
+        //TODO: directly invoke newDocView->viewNote() instead of signaling.
+        WizGlobal::emitViewNoteRequested(newDocView, data, forceEditing);
+        setCurrentDocumentView(newDocView); //FIXME: do not keep m_doc
+        view = newDocView;
+    }
+
+    connect(view, &AbstractDocumentView::locateDocumentRequest,
+            this, QOverload<const WIZDOCUMENTDATA&>::of(&WizMainWindow::locateDocument));
+
     m_actions->actionFromName(WIZACTION_GLOBAL_SAVE_AS_MARKDOWN)->setEnabled(WizIsMarkdownNote(data));
+
     return;
 }
 
@@ -4225,24 +4367,6 @@ void WizMainWindow::initTrayIcon(QSystemTrayIcon* trayIcon)
 #endif
 }
 
-void WizMainWindow::setWindowStyle(bool bUseSystemStyle)
-{
-    if (bUseSystemStyle)
-    {
-        setAttribute(Qt::WA_TranslucentBackground, false); //enable MainWindow to be transparent
-        //
-        {
-            QMainWindow window;
-            setWindowFlags(window.windowFlags());
-        }
-        //
-        rootWidget()->setContentsMargins(0, 0, 0, 0);
-        titleBar()->maxButton()->setVisible(false);
-        titleBar()->minButton()->setVisible(false);
-        titleBar()->closeButton()->setVisible(false);
-    }
-}
-
 void WizMainWindow::setMobileFileReceiverEnable(bool bEnable)
 {
     if (bEnable)
@@ -4360,6 +4484,9 @@ WizDocumentWebView* WizMainWindow::getActiveEditor()
 
 void WizMainWindow::showDocumentList()
 {
+    if (!m_settings->showLayoutDocumentListView())
+        return;
+
     if (!m_noteListWidget->isVisible())
     {
         m_docListContainer->show();
@@ -4415,6 +4542,9 @@ void WizMainWindow::showDocumentList(WizCategoryBaseView* category)
 
 void WizMainWindow::showMessageList(WizCategoryViewMessageItem* pItem)
 {
+    if (!m_settings->showLayoutDocumentListView())
+        return;
+
     if (!m_msgListWidget->isVisible())
     {
         m_docListContainer->show();
@@ -4611,7 +4741,7 @@ void WizMainWindow::setNeedResetGroups()
 {
     if (!m_syncQuick || !m_syncFull)
         return;
-    //
+
     m_syncQuick->setNeedResetGroups();
     m_syncFull->setNeedResetGroups();
 }

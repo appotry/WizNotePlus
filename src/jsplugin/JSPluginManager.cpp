@@ -17,6 +17,8 @@
 #include <QWebEngineView>
 #include <QWebEngineSettings>
 #include <QMessageBox>
+#include <QJSEngine>
+#include <QQmlEngine>
 
 #include "sync/WizToken.h"
 #include "WizMainWindow.h"
@@ -33,12 +35,11 @@
 #include "gui/tabbrowser/WizMainTabBrowser.h"
 #include "JSPlugin.h"
 #include "JSPluginSpec.h"
-#include "JSPluginHtmlDialog.h"
-#include "JSPluginSelectorWindow.h"
+#include "JSPluginWidgets.h"
 
 JSPluginManager::JSPluginManager()
     : QObject(nullptr)
-    , m_app(*WizMainWindow::instance())
+    , m_mainWindow(nullptr)
 {
     QStringList pluginScanPathList = Utils::WizPathResolve::pluginsAllPath();
     for (QString &path : pluginScanPathList) {
@@ -92,6 +93,19 @@ QList<JSPluginModule *> JSPluginManager::modulesByButtonLocation(QString buttonL
     return ret;
 }
 
+QList<JSPluginModule *> JSPluginManager::modulesByModuleType(QString type) const
+{
+    QList<JSPluginModule *> ret;
+    for (JSPlugin *pluginData : m_pluginDataCollection) {
+        for (JSPluginModule *moduleData : pluginData->modules()) {
+            if (moduleData->spec()->moduleType() == type) {
+                ret.push_back(moduleData);
+            }
+        }
+    }
+    return ret;
+}
+
 QList<JSPluginModule *> JSPluginManager::modulesByKeyValue(QString key, QString value) const
 {
     QList<JSPluginModule *> ret;
@@ -124,26 +138,24 @@ JSPluginModule *JSPluginManager::moduleByGUID(QString guid) const
 QAction *JSPluginManager::createPluginAction(QWidget *parent, JSPluginModule *moduleData)
 {
     QAction *ac = new QAction(parent);
+    initPluginAction(ac, moduleData);
+    return ac;
+}
+
+void JSPluginManager::initPluginAction(QAction *ac, JSPluginModule *moduleData)
+{
     ac->setData(moduleData->spec()->guid());
     ac->setIcon(QIcon(moduleData->spec()->iconFileName()));
     ac->setIconText(moduleData->spec()->caption());
     ac->setText(moduleData->spec()->caption());
     ac->setToolTip(moduleData->spec()->caption());
-    return ac;
 }
 
 JSPluginHtmlDialog *JSPluginManager::initPluginHtmlDialog(JSPluginModule *moduleData)
 {
-    JSPluginHtmlDialog *htmlDialog = new JSPluginHtmlDialog(m_app, moduleData, nullptr);
+    JSPluginHtmlDialog *htmlDialog = new JSPluginHtmlDialog(*m_mainWindow, moduleData, nullptr);
     m_pluginHtmlDialogCollection.insert(moduleData->spec()->guid(), htmlDialog);
     return htmlDialog;
-}
-
-JSPluginSelectorWindow *JSPluginManager::initPluginSelectorWindow(JSPluginModule *moduleData)
-{
-    JSPluginSelectorWindow *selectorWindow = new JSPluginSelectorWindow(m_app, moduleData, nullptr);
-    m_pluginPopupDialogCollection.insert(moduleData->spec()->guid(), selectorWindow);
-    return selectorWindow;
 }
 
 WizWebsiteView *JSPluginManager::initPluginMainTabView(JSPluginModule *moduleData)
@@ -151,10 +163,10 @@ WizWebsiteView *JSPluginManager::initPluginMainTabView(JSPluginModule *moduleDat
     WizWebEngineInjectObjectCollection objects = {
         {"JSPlugin", moduleData->parentPlugin()},
         {"JSPluginModule", moduleData},
-        {"WizExplorerApp", WizMainWindow::instance()->publicAPIsObject()}
+        {"WizExplorerApp", m_mainWindow->publicAPIsObject()}
     };
     WizWebEngineView *webView = new WizWebEngineView(objects, nullptr);
-    QPointer<WizWebsiteView> websiteView = new WizWebsiteView(webView, m_app);
+    QPointer<WizWebsiteView> websiteView = new WizWebsiteView(webView, *m_mainWindow);
     websiteView->viewHtml(QUrl::fromLocalFile(moduleData->spec()->htmlFileName()));
     m_pluginMainTabViewCollection.insert(moduleData->spec()->guid(), websiteView);
     return websiteView;
@@ -184,17 +196,11 @@ void JSPluginManager::showPluginHtmlDialog(JSPluginModule *moduleData)
     dialog->raise();
 }
 
-void JSPluginManager::showPluginSelectorWindow(JSPluginModule *moduleData, QPoint &pt)
+void JSPluginManager::showPluginSelectorWindow(JSPluginModule *moduleData, const QPoint &pt)
 {
     QString guid = moduleData->spec()->guid();
-    JSPluginSelectorWindow* selectorWindow;
-    auto it = m_pluginPopupDialogCollection.find(guid);
-    if ( it == m_pluginPopupDialogCollection.end()) {
-        selectorWindow = initPluginSelectorWindow(moduleData);
-    } else {
-        selectorWindow = it.value();
-    }
-    //
+    JSPluginSelectorWindow *selectorWindow = new JSPluginSelectorWindow(*m_mainWindow, moduleData, nullptr);
+    selectorWindow->setAttribute(Qt::WA_DeleteOnClose);
     moduleData->emitShowEvent();
     selectorWindow->showAtPoint(pt);
 }
@@ -203,7 +209,7 @@ void JSPluginManager::showPluginMainTabView(JSPluginModule *moduleData)
 {
     QString guid = moduleData->spec()->guid();
     QPointer<WizWebsiteView> mainTabView;
-    WizMainTabBrowser *tabBrowser = WizMainWindow::instance()->mainTabView();
+    WizMainTabBrowser *tabBrowser = m_mainWindow->mainTabView();
     auto it = m_pluginMainTabViewCollection.find(guid);
     if ( it == m_pluginMainTabViewCollection.end() || it.value().isNull() ) {
         // create one
@@ -247,10 +253,34 @@ void JSPluginManager::handlePluginActionTriggered()
         showPluginHtmlDialog(moduleData);
     } else if ( slotType == "MainTabView") {
         showPluginMainTabView(moduleData);
+    } else if ( slotType == "ExecuteScript" ) {
+        executeModuleScript(moduleData);
     }
 }
 
-void JSPluginManager::notifyDocumentChanged()
+void JSPluginManager::handlePluginPopupRequest(QAction *ac, const QPoint &pos)
+{
+    QString moduleGuid = ac->data().toString();
+    if (moduleGuid.isEmpty())
+        return;
+
+    JSPluginModule *moduleData = moduleByGUID(moduleGuid);
+    if (!moduleData)
+        return;
+
+    QString slotType = moduleData->spec()->slotType();
+    if ( slotType == "SelectorWindow" ) {
+        showPluginSelectorWindow(moduleData, pos);
+    } else if ( slotType == "HtmlDialog" ) {
+        showPluginHtmlDialog(moduleData);
+    } else if ( slotType == "MainTabView") {
+        showPluginMainTabView(moduleData);
+    } else if ( slotType == "ExecuteScript" ) {
+        executeModuleScript(moduleData);
+    }
+}
+
+void JSPluginManager::handleDocumentChanged()
 {
     for (auto data : m_pluginDataCollection) {
         data->emitDocumentChanged();
@@ -309,12 +339,48 @@ void JSPluginManager::handlePluginEditorRequest(const WIZDOCUMENTDATA &doc, cons
     WizWebEngineInjectObjectCollection objects = {
         {"JSPlugin", module->parentPlugin()},
         {"JSPluginModule", module},
-        {"WizExplorerApp", WizMainWindow::instance()->publicAPIsObject()}
+        {"WizExplorerApp", m_mainWindow->publicAPIsObject()}
     };
     // Ownership of page is passed on to the QTabWidget.
     WizWebEngineView *webView = new WizWebEngineView(objects, nullptr);
-    WizWebsiteView *websiteView = new WizWebsiteView(webView, m_app);
+    WizWebsiteView *websiteView = new WizWebsiteView(webView, *m_mainWindow);
     websiteView->viewHtml(indexFileUrl);
-    WizMainTabBrowser *tabBrowser = WizMainWindow::instance()->mainTabView();
+    WizMainTabBrowser *tabBrowser = m_mainWindow->mainTabView();
     tabBrowser->createTab(websiteView);
+}
+
+void JSPluginManager::executeModuleScript(JSPluginModule *moduleData)
+{
+    QString scriptFile = moduleData->spec()->scriptFileName();
+    QString scriptContent;
+    if (!WizLoadUnicodeTextFromFile(scriptFile, scriptContent)) {
+        qWarning() << tr("Can't read script file: ") + scriptFile;
+        return;
+    }
+
+    QJSEngine jsEngine;
+    jsEngine.installExtensions(QJSEngine::AllExtensions);
+    jsEngine.globalObject().setProperty("global", jsEngine.globalObject());
+
+    WizWebEngineInjectObjectCollection objects = {
+        {"JSPlugin", moduleData->parentPlugin()},
+        {"JSPluginModule", moduleData},
+        {"WizExplorerApp", m_mainWindow->publicAPIsObject()}
+    };
+
+    auto i = objects.constBegin();
+    while (i != objects.constEnd()) {
+        QQmlEngine::setObjectOwnership(i.value(), QQmlEngine::CppOwnership);
+        jsEngine.globalObject().setProperty(i.key(), jsEngine.newQObject(i.value()));
+        ++i;
+    }
+
+    QJSValue result = jsEngine.evaluate(scriptContent, scriptFile);
+
+    if (result.isError())
+        QMessageBox::critical(
+            nullptr, "QJSEngine Error",
+            QString("Uncaught exception at line %1:\n%2")
+              .arg(result.property("lineNumber").toInt())
+              .arg(result.toString()));
 }

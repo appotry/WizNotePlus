@@ -15,17 +15,18 @@ class QShortcut;
 
 #define WIZACTION_GLOBAL_SYNC               "actionSync"
 #define WIZACTION_GLOBAL_NEW_DOCUMENT       "actionNewNote"
-#define WIZACTION_GLOBAL_GOFORWARD  "actionGoForward"
-#define WIZACTION_GLOBAL_GOBACK  "actionGoBack"
+#define WIZACTION_GLOBAL_GOFORWARD          "actionGoForward"
+#define WIZACTION_GLOBAL_GOBACK             "actionGoBack"
 #define WIZACTION_GLOBAL_SAVE_AS_PDF        "actionSaveAsPDF"
-#define WIZACTION_GLOBAL_SAVE_AS_HTML        "actionSaveAsHtml"
-#define WIZACTION_GLOBAL_SAVE_AS_MARKDOWN    "actionSaveAsMarkdown"
-#define WIZACTION_GLOBAL_IMPORT_FILE            "actionImportFile"
-#define WIZACTION_GLOBAL_PRINT_MARGIN        "actionPrintMargin"
+#define WIZACTION_GLOBAL_SAVE_AS_HTML       "actionSaveAsHtml"
+#define WIZACTION_GLOBAL_SAVE_AS_MARKDOWN   "actionSaveAsMarkdown"
+#define WIZACTION_GLOBAL_IMPORT_FILE        "actionImportFile"
+#define WIZACTION_GLOBAL_EXPORT_FILE        "actionExportFile"
+#define WIZACTION_GLOBAL_PRINT_MARGIN       "actionPrintMargin"
 #define WIZACTION_GLOBAL_TOGGLE_CATEGORY    "actionViewToggleCategory"
-#define WIZACTION_GLOBAL_SHOW_SUB_FOLDER_DOCUMENTS      "actionViewShowSubFolderDocuments"
+#define WIZACTION_GLOBAL_SHOW_SUBFOLDER_DOC "actionViewShowSubFolderDocuments"
 #ifdef Q_OS_MAC
-#   define WIZACTION_GLOBAL_CLIENT_FULLSCREEN  "actionViewToggleClientFullscreen"
+#define WIZACTION_GLOBAL_CLIENT_FULLSCREEN  "actionViewToggleClientFullscreen"
 #endif // Q_OS_MAC
 #define WIZACTION_GLOBAL_TOGGLE_FULLSCREEN  "actionViewToggleFullscreen"
 
@@ -43,6 +44,8 @@ class QShortcut;
 #define WIZACTION_FORMAT_ITALIC             "actionMenuFormatItalic"
 #define WIZACTION_FORMAT_UNDERLINE          "actionMenuFormatUnderLine"
 #define WIZACTION_FORMAT_STRIKETHROUGH      "actionMenuFormatStrikeThrough"
+#define WIZACTION_FORMAT_SUBSCRIPT          "actionMenuFormatSubscript"
+#define WIZACTION_FORMAT_SUPERSCRIPT        "actionMenuFormatSuperscript"
 #define WIZACTION_FORMAT_UNORDEREDLIST      "actionMenuFormatInsertUnorderedList"
 #define WIZACTION_FORMAT_ORDEREDLIST        "actionMenuFormatInsertOrderedList"
 #define WIZACTION_FORMAT_JUSTIFYLEFT        "actionMenuFormatJustifyLeft"
@@ -61,23 +64,29 @@ class QShortcut;
 #define WIZACTION_FORMAT_INSERT_IMAGE       "actionMenuFormatInsertImage"
 #define WIZACTION_FORMAT_SCREEN_SHOT        "actionMenuFormatScreenShot"
 
-#define WIZCATEGORY_OPTION_MESSAGECENTER        "actionCategoryMessageCenter"
-#define WIZCATEGORY_OPTION_SHORTCUTS                  "actionCategoryShortcuts"
-#define WIZCATEGORY_OPTION_QUICKSEARCH              "actionCategoryQuickSearch"
-#define WIZCATEGORY_OPTION_FOLDERS                       "actionCategoryFolders"
-#define WIZCATEGORY_OPTION_TAGS                               "actionCategoryTags"
-#define WIZCATEGORY_OPTION_BIZGROUPS                   "actionCategoryBizGroups"
-#define WIZCATEGORY_OPTION_PERSONALGROUPS     "actionCategoryPersonalGroups"
-#define WIZCATEGORY_OPTION_THUMBNAILVIEW           "actionThumbnailView"
-#define WIZCATEGORY_OPTION_SEARCHRESULTVIEW           "actionSearchResultView"
-#define WIZCATEGORY_OPTION_TWOLINEVIEW               "actionTwoLineView"
-#define WIZCATEGORY_OPTION_ONELINEVIEW               "actionOneLineView"
-#define WIZDOCUMENT_SORTBY_CREATEDTIME              "actionSortByCreatedTime"
-#define WIZDOCUMENT_SORTBY_UPDATEDTIME               "actionSortByUpdatedTime"
-#define WIZDOCUMENT_SORTBY_ACCESSTIME                 "actionSortByAccessTime"
-#define WIZDOCUMENT_SORTBY_TITLE                              "actionSortByTitle"
-#define WIZDOCUMENT_SORTBY_FOLDER                          "actionSortByFolder"
-#define WIZDOCUMENT_SORTBY_SIZE                                 "actionSortBySize"
+#define WIZCATEGORY_OPTION_MESSAGECENTER    "actionCategoryMessageCenter"
+#define WIZCATEGORY_OPTION_SHORTCUTS        "actionCategoryShortcuts"
+#define WIZCATEGORY_OPTION_QUICKSEARCH      "actionCategoryQuickSearch"
+#define WIZCATEGORY_OPTION_FOLDERS          "actionCategoryFolders"
+#define WIZCATEGORY_OPTION_TAGS             "actionCategoryTags"
+#define WIZCATEGORY_OPTION_BIZGROUPS        "actionCategoryBizGroups"
+#define WIZCATEGORY_OPTION_PERSONALGROUPS   "actionCategoryPersonalGroups"
+#define WIZCATEGORY_OPTION_THUMBNAILVIEW    "actionThumbnailView"
+#define WIZCATEGORY_OPTION_SEARCHRESULTVIEW "actionSearchResultView"
+#define WIZCATEGORY_OPTION_TWOLINEVIEW      "actionTwoLineView"
+#define WIZCATEGORY_OPTION_ONELINEVIEW      "actionOneLineView"
+#define WIZDOCUMENT_SORTBY_CREATEDTIME      "actionSortByCreatedTime"
+#define WIZDOCUMENT_SORTBY_UPDATEDTIME      "actionSortByUpdatedTime"
+#define WIZDOCUMENT_SORTBY_ACCESSTIME       "actionSortByAccessTime"
+#define WIZDOCUMENT_SORTBY_TITLE            "actionSortByTitle"
+#define WIZDOCUMENT_SORTBY_FOLDER           "actionSortByFolder"
+#define WIZDOCUMENT_SORTBY_SIZE             "actionSortBySize"
+
+#define WIZLAYOUT_CATEGORY_VIEW             "actionLayoutCategoryView"
+#define WIZLAYOUT_DOCUMENTLIST_VIEW         "actionLayoutDocumentListView"
+#define WIZLAYOUT_TAB_BROWSER               "actionLayoutTabBrowser"
+
+#define WIZSKIN_RELOAD_STYLESHEET           "actionSkinReloadStyleSheet"
 
 /**
 //NOTE：因为Linux版本没有menubar，qaction在隐藏后快捷键无法触发，此处创建一个shortcut并与app的槽函数绑定
@@ -122,7 +131,7 @@ public:
     QMenu* toMenu(QWidget* parent, WizSettings& settings, const QString& strSection);
     void buildMenu(QMenu* pMenu, WizSettings& settings, const QString& strSection, bool bMenuBar);
     void buildMenuBar(QMenuBar* menuBar, const QString& strFileName, QMenu*& windowsMenu);
-    void buildMenu(QMenu* menu, const QString& strFileName);
+    void buildMenuList(QMenu* menu, const QString& strFileName, QMenu*& windowsMenu);
     //
 Q_SIGNALS:
     void insertTableSelected(int row, int col);

@@ -69,6 +69,8 @@ private:
     CWizToolButtonColor* m_btnBackColor;
     CWizToolButton* m_btnFormatPainter;
     CWizToolButton* m_btnRemoveFormat;
+    CWizToolButton* m_btnSubscript;
+    CWizToolButton* m_btnSuperscript;
     CWizToolButton* m_btnBold;
     CWizToolButton* m_btnItalic;
     CWizToolButton* m_btnUnderLine;
@@ -189,6 +191,8 @@ protected Q_SLOTS:
     void on_btnItalic_clicked();
     void on_btnUnderLine_clicked();
     void on_btnStrikeThrough_clicked();
+    void on_btnSubscript_clicked();
+    void on_btnSuperscript_clicked();
     void on_btnJustify_clicked();
     void on_btnJustifyLeft_clicked();
     void on_btnJustifyCenter_clicked();
@@ -212,7 +216,6 @@ protected Q_SLOTS:
     void on_editor_copyImage_triggered();
     void on_editor_copyImageLink_triggered();
 
-    void on_delegate_showContextMenuRequest(const QPoint& pos);
     void on_delegate_selectionChanged(const QString&);
     void on_delegate_markerUndoStatusChanged(const QString&);
     void on_delegate_markerInitiated(const QString&);

@@ -49,6 +49,7 @@ private:
     int m_moduleCount;
     int m_realModuleCount;
     int m_manifestVersion;
+    QString m_apiMinimumRequired;
     QVector<JSPluginModuleSpec *> m_modules;
 
 public:
@@ -78,6 +79,7 @@ private:
 
     bool validateActionTypeModule();
     bool validateEditorTypeModule();
+    bool validateMenuTypeModule();
 
 public:
     JSPluginSpec *parentSpec() { return m_parentSpec; }
@@ -94,8 +96,10 @@ public:
     QStringList scriptFiles() { return m_scriptFiles; }
     QStringList styleFiles() { return m_styleFiles; }
     QStringList supportedFormats() { return m_supportedFormats; }
+    QList<int> actionIndexes() { return m_actionIndexes; }
     int width() { return m_width; }
     int height() { return m_height; }
+    QString sidebarLocation() { return m_sidebarLocation; }
 
 private:
     QString getFilePath(QSettings *setting, const QString &key);
@@ -129,6 +133,10 @@ private:
     QStringList m_scriptFiles;
     QStringList m_styleFiles;
     QStringList m_supportedFormats;
+
+    // ModuleType=Menu
+    QList<int> m_actionIndexes;
+    QString m_sidebarLocation;
 
 public:
     friend class JSPluginSpec;

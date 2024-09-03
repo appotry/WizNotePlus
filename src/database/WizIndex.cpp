@@ -321,7 +321,7 @@ bool WizIndex::createTag(const CString& strParentTagGUID,
     data.strDescription = strDescription;
 	data.tModified = WizGetCurrentTime();
     data.nVersion = -1;
-    data.nPostion = 0;
+    data.nPosition = 0;
 
 	return createTagEx(data);
 }
@@ -564,8 +564,8 @@ bool WizIndex::deleteTag(const WIZTAGDATA& data, bool bLog, bool bReset /* = tru
 
 bool WizIndex::modifyTagPosition(const WIZTAGDATA& data)
 {
-    CString strSQL = WizFormatString2("update WIZ_TAG set TAG_POS=%1 where TAG_GUID=%2",
-        WizInt64ToStr(data.nPostion),
+    CString strSQL = WizFormatString2("update WIZ_TAG set TAG_POS=%1, WIZ_VERSION=-1 where TAG_GUID=%2",
+        WizInt64ToStr(data.nPosition),
         STR2SQL(data.strGUID));
 
     //
@@ -2845,6 +2845,33 @@ bool WizIndex::getRecentDocumentsModified(const CString& strDocumentType, int nC
 			);
 	}
 	//
+    return sqlToDocumentDataArray(strSQL, arrayDocument);
+}
+
+bool WizIndex::getRecentDocumentsAccessed(const CString& strDocumentType, int nCount, CWizDocumentDataArray& arrayDocument)
+{
+	CString strSQL;
+
+	if (strDocumentType.isEmpty())
+	{
+        strSQL.format("select %s from %s where DOCUMENT_LOCATION not like %s order by DT_ACCESSED desc limit 0, %d",
+            QString(FIELD_LIST_WIZ_DOCUMENT).utf16(),
+            QString(TABLE_NAME_WIZ_DOCUMENT).utf16(),
+            STR2SQL(m_strDeletedItemsLocation + "%").utf16(),
+			nCount
+			);
+	}
+	else
+	{
+        strSQL.format("select %s from %s where DOCUMENT_TYPE=%s and DOCUMENT_LOCATION not like %s order by DT_ACCESSED desc limit 0,%d",
+            QString(FIELD_LIST_WIZ_DOCUMENT).utf16(),
+            QString(TABLE_NAME_WIZ_DOCUMENT).utf16(),
+            STR2SQL(strDocumentType).utf16(),
+            STR2SQL(m_strDeletedItemsLocation + "%").utf16(),
+			nCount
+			);
+	}
+
     return sqlToDocumentDataArray(strSQL, arrayDocument);
 }
 

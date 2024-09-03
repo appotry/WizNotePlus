@@ -275,6 +275,7 @@ private:
     QMutex m_mutexCache;
     CWizGroupDataArray m_cachedGroups;
     CWizBizDataArray m_cachedBizs;
+
 public:
     WizDatabase();
 
@@ -553,6 +554,7 @@ public:
     void clearUnusedImages(const QString& strHtml, const QString& strFilePath);
 
     bool updateDocumentAbstract(const QString& strDocumentGUID);
+    bool updateDocumentAbstract(const QString &strDocGUID, const QString &strAbstract);
 
     virtual bool updateDocumentDataMD5(WIZDOCUMENTDATA& data, const CString& strZipFileName, bool notifyDataModify = true);
 
@@ -673,10 +675,10 @@ public:
     Q_INVOKABLE QStringList GetAllTags();
     Q_INVOKABLE QObject *DocumentFromGUID(const QString &strGUID);
     Q_INVOKABLE QVariantList DocumentsFromSQLWhere(const QString& strSQLWhere);
-    Q_INVOKABLE QVariantList GetRecentDocuments(const QString &documentType, int count);
+    Q_INVOKABLE QVariantList GetRecentDocuments(const QString &documentType, int count, int type);
     Q_INVOKABLE QObject *AttachmentFromGUID(const QString &attachmentGUID);
-    //using CWizIndexBase::DocumentFromGUID;
-    //Q_INVOKABLE QObject* DocumentFromGUID(const QString& strGUID);
+    Q_INVOKABLE bool SetMeta(const QString &section, const QString &key, const QString & value);
+    Q_INVOKABLE QString GetMeta(const QString &section, const QString &key);
 
 public slots:
     void onAttachmentModified(const QString strKbGUID, const QString& strGUID, const QString& strFileName,
@@ -714,6 +716,7 @@ private:
     bool getAllBizInfoCore(const CWizGroupDataArray& arrayGroup, CWizBizDataArray& arrayBiz);
     bool setAllBizInfoCore(const CWizBizDataArray& arrayBiz);
     QVariantList packDocumentsToList(const CWizDocumentDataArray &docDataArray);
+    bool emptyProtectedAbstract(const QString &docGuid);
 };
 
 

@@ -12,13 +12,14 @@
 
 cmake_minimum_required(VERSION 3.0)
 
-project(WizNotePlus VERSION 2.8.0)
+project(WizNotePlus VERSION 2.12.0)
 
 #============================================================================
 # Options and Variables
 #============================================================================
 
 option(BUILD_TESTING "Building the test target or not." OFF)
+option(USE_CUSTOM_SCROLLBAR "Use custom scrollbar instead of Qt's one." ON)
 
 # Excute conan outside or not.
 option(CONAN_INSTALL_MANUALLY "Run Conan install command manually." OFF)
@@ -38,7 +39,7 @@ list(APPEND CMAKE_MODULE_PATH
 
 # WizNotePlus Dirs
 if(APPLE)
-    set(WIZNOTE_ROOT_DIR ${CMAKE_BINARY_DIR}/bin/WizNote.app)
+    set(WIZNOTE_ROOT_DIR ${CMAKE_BINARY_DIR}/bin/WizNotePlus.app)
     set(WIZNOTE_CONTENTS_DIR ${WIZNOTE_ROOT_DIR}/Contents)
     set(WIZNOTE_RESOURCE_DIR ${WIZNOTE_ROOT_DIR}/Contents/Resources)
 else(APPLE)
@@ -97,9 +98,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_BINARY_DIR} ${CMAKE_MODULE_PATH})
 
 # setup 3rd-party package
 find_package(cryptopp REQUIRED)
-find_package(quazip REQUIRED)
 find_package(ZLIB REQUIRED)
-find_package(Gumbo REQUIRED)
 find_package(OpenSSL)
 
 # install 3rd-party package
@@ -115,6 +114,28 @@ find_package(OpenSSL)
 include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
 conan_output_dirs_setup()
 
+find_package(Git QUIET)
+
+macro(git_submodule)
+    foreach(_module ${ARGV})
+        message(STATUS "Submodule updating ${_module}")
+        execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init ${_module}
+                        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                        RESULT_VARIABLE GIT_SUBMOD_RESULT)
+        if(NOT GIT_SUBMOD_RESULT EQUAL "0")
+            message(FATAL_ERROR "Updating ${_module} failed with ${GIT_SUBMOD_RESULT}.")
+        endif()
+    endforeach()
+endmacro()
+
+if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
+    git_submodule(
+        src/libs/3rdparty/framelesshelper
+        src/libs/3rdparty/quazip
+        src/libs/3rdparty/gumbo-parser
+    )
+endif()
+
 #============================================================================
 # Internal compiler options
 #============================================================================
@@ -122,6 +143,10 @@ conan_output_dirs_setup()
 include(CheckCXXCompilerFlag)
 CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
 CHECK_CXX_COMPILER_FLAG("-std=c++0x" COMPILER_SUPPORTS_CXX0X)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(UNIX)
     if(COMPILER_SUPPORTS_CXX11)
@@ -149,11 +174,9 @@ if(APPLE)
     add_definitions(-DUSECOCOATOOLBAR=TRUE)
 endif(APPLE)
 
-# when including QuaZip sources directly into a project, QUAZIP_STATIC should
-# be defined explicitly to avoid possible troubles with unnecessary importing/exporting.
-if (WIN32)
-    add_definitions(-DQUAZIP_STATIC)
-endif()
+if (USE_CUSTOM_SCROLLBAR)
+    add_definitions(-DWIZNOTE_CUSTOM_SCROLLBAR)
+endif(USE_CUSTOM_SCROLLBAR)
 
 #============================================================================
 # Subfolders

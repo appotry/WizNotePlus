@@ -55,8 +55,10 @@ WIZACTION* WizActions::actionsData()
         {"actionLink", QObject::tr("Link")},
         {"actionStyle", QObject::tr("Style")},
         {"actionInsert", QObject::tr("Insert")},
+        {"actionLayout", QObject::tr("Layout")},
         {"actionCategoryOption", QObject::tr("Category Option")},
-        {"actionSortBy", QObject::tr("Sort By")}
+        {"actionSortBy", QObject::tr("Sort By")},
+        {"actionSkin", QObject::tr("Skin")}
     };
 
     Q_UNUSED(arrayRoot);
@@ -75,6 +77,7 @@ WIZACTION* WizActions::actionsData()
         {WIZACTION_GLOBAL_SAVE_AS_HTML,         QObject::tr("Save as Html..."),             "",                                     QKeySequence()},
         {WIZACTION_GLOBAL_SAVE_AS_MARKDOWN,     QObject::tr("Save as Markdown..."),         "",                                     QKeySequence()},
         {WIZACTION_GLOBAL_IMPORT_FILE,          QObject::tr("Import Files..."),             "",                                     QKeySequence()},
+        {WIZACTION_GLOBAL_EXPORT_FILE,          QObject::tr("Export Files..."),             "",                                     QKeySequence()},
         {WIZACTION_GLOBAL_PRINT_MARGIN,         QObject::tr("PDF Page Margins..."),         "",                                     QKeySequence()},
         //{WIZACTION_GLOBAL_VIEW_MESSAGES,      QObject::tr("View messages"),               "",                                     QKeySequence()},
         {WIZACTION_GLOBAL_GOBACK,               QObject::tr("Back"),                        "",                                     QKeySequence()},
@@ -82,6 +85,8 @@ WIZACTION* WizActions::actionsData()
         {"actionConsole",                       QObject::tr("Console..."),                  "",                                     QKeySequence()},
         {"actionSearch",                        QObject::tr("Search Note"),                 "",                                     QKeySequence("Ctrl+Alt+F")},
         {"actionResetSearch",                   QObject::tr("Reset Search"),                "",                                     QKeySequence("Ctrl+R")},
+        {"actionDownloadManager",               QObject::tr("Download Manager..."),         "",                                     QKeySequence()},
+        {"actionJSConsole",                     QObject::tr("JavaScript Console..."),       "",                                     QKeySequence()},
         {"actionFeedback",                      QObject::tr("User Feedback..."),            "",                                     QKeySequence()},
         {"actionSupport",                       QObject::tr("User Support..."),             "",                                     QKeySequence()},
         {"actionManual",                        QObject::tr("User Manual..."),              "",                                     QKeySequence()},
@@ -99,7 +104,7 @@ WIZACTION* WizActions::actionsData()
 
         // view
         {WIZACTION_GLOBAL_TOGGLE_CATEGORY,      QObject::tr("Hide Sidebar"),                QObject::tr("Show Sidebar"),            QKeySequence("F3")},
-        {WIZACTION_GLOBAL_SHOW_SUB_FOLDER_DOCUMENTS,      QObject::tr("Show sub folder documents"),   QObject::tr(""),    QKeySequence("")},
+        {WIZACTION_GLOBAL_SHOW_SUBFOLDER_DOC,   QObject::tr("Show sub folder documents"),   QObject::tr(""),    QKeySequence("")},
 #ifdef Q_OS_MAC
         {WIZACTION_GLOBAL_CLIENT_FULLSCREEN,    QObject::tr("Enter Client Fullscreen"),     QObject::tr("Leave Client Fullscreen"), QKeySequence("Ctrl+Meta+F")},
         {WIZACTION_GLOBAL_TOGGLE_FULLSCREEN,    QObject::tr("Enter Fullscreen"),            QObject::tr("Leave Fullscreen"),        QKeySequence("Shift+Meta+F")},
@@ -109,6 +114,7 @@ WIZACTION* WizActions::actionsData()
         {"actionViewMinimize",                  QObject::tr("Minimize"),                    QObject::tr(""),                        QKeySequence("Ctrl+M")},
         {"actionZoom",                          QObject::tr("Zoom"),                        QObject::tr(""),                        QKeySequence()},
         {"actionBringFront",                    QObject::tr("Bring All to Front"),          QObject::tr(""),                        QKeySequence()},
+        {"actionOpenWelcomePage",               QObject::tr("Open Welcome Page"),           QObject::tr(""),                        QKeySequence()},
 
         //view
         {WIZCATEGORY_OPTION_MESSAGECENTER,      QObject::tr("Message Center"),              QObject::tr(""),                        QKeySequence()},
@@ -127,6 +133,12 @@ WIZACTION* WizActions::actionsData()
         {WIZDOCUMENT_SORTBY_TITLE,              QObject::tr("Sort by Title"),               QObject::tr(""),                        QKeySequence()},
         {WIZDOCUMENT_SORTBY_FOLDER,             QObject::tr("Sort by Folder"),              QObject::tr(""),                        QKeySequence()},
         {WIZDOCUMENT_SORTBY_SIZE,               QObject::tr("Sort by Size"),                QObject::tr(""),                        QKeySequence()},
+        {WIZLAYOUT_CATEGORY_VIEW,               QObject::tr("Category View"),               QObject::tr(""),                        QKeySequence()},
+        {WIZLAYOUT_DOCUMENTLIST_VIEW,           QObject::tr("Document List View"),          QObject::tr(""),                        QKeySequence()},
+        {WIZLAYOUT_TAB_BROWSER,                 QObject::tr("Tab Browser"),                 QObject::tr(""),                        QKeySequence()},
+
+        // skin
+        {WIZSKIN_RELOAD_STYLESHEET,             QObject::tr("Reload stylesheet"),           QObject::tr(""),                        QKeySequence("Ctrl+F5")},
 
         // format
         {WIZACTION_FORMAT_JUSTIFYLEFT,          QObject::tr("Justify Left"),                "",                                     QKeySequence("Ctrl+[")},
@@ -142,6 +154,8 @@ WIZACTION* WizActions::actionsData()
         {WIZACTION_FORMAT_ITALIC,               QObject::tr("Italic"),                      "",                                     QKeySequence("Ctrl+I")},
         {WIZACTION_FORMAT_UNDERLINE,            QObject::tr("Underline"),                   "",                                     QKeySequence("Ctrl+U")},
         {WIZACTION_FORMAT_STRIKETHROUGH,        QObject::tr("Strike Through"),              "",                                     QKeySequence("Ctrl+Alt+K")},
+        {WIZACTION_FORMAT_SUBSCRIPT,            QObject::tr("Subscript"),                   "",                                     QKeySequence("")},
+        {WIZACTION_FORMAT_SUPERSCRIPT,          QObject::tr("Superscript"),                 "",                                     QKeySequence("")},
         {WIZACTION_FORMAT_INSERT_HORIZONTAL,    QObject::tr("Insert Horizontal"),           "",                                     QKeySequence("Shift+Ctrl+H")},
         {WIZACTION_FORMAT_INSERT_DATE,          QObject::tr("Insert Date"),                 "",                                     QKeySequence("Shift+Ctrl+D")},
         {WIZACTION_FORMAT_INSERT_TIME,          QObject::tr("Insert Time"),                 "",                                     QKeySequence("Shift+Ctrl+Alt+D")},
@@ -387,7 +401,7 @@ void WizActions::buildMenuBar(QMenuBar* menuBar, const QString& strFileName, QMe
     }
 }
 
-void WizActions::buildMenu(QMenu* menu, const QString& strFileName)
+void WizActions::buildMenuList(QMenu* menu, const QString& strFileName, QMenu*& windowsMenu)
 {
     WizSettings settings(strFileName);
 
@@ -411,6 +425,11 @@ void WizActions::buildMenu(QMenu* menu, const QString& strFileName)
             QMenu* pMenu = menu->addMenu(strLocalText);
 
             buildMenu(pMenu, settings, strAction, false);
+
+            if (strAction.remove('&') == "Window")
+            {
+                windowsMenu = pMenu;
+            }
         }
         else
         {

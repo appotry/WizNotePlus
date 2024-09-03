@@ -29,8 +29,10 @@ public:
     static QString shareServer();
     static QString shareNoteUrl();
     static QString svgEditorUrl();
+    static QString noteplusUrl(
+        const QString &kbGUID, const QString &docGUID,
+        const QString &userGUID, const QString &displayName);
 
-    //
     static QString makeUpUrlFromCommand(const QString& strCommand);
     static QString makeUpUrlFromCommand(const QString& strCommand, const QString& strToken);
     static QString makeUpUrlFromCommand(const QString& strCommand, const QString& strToken,
@@ -45,6 +47,7 @@ public:
     static QString appstoreParam(bool useAndSymbol = true);
 
     static QString newAsServerUrl();
+    static QString server() { return m_server; }
 
 private:
     static QString requestUrl(const QString& strCommand);

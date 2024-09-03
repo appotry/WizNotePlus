@@ -8,6 +8,7 @@
 #include <QByteArray>
 #include <QSettings>
 #include <functional>
+#include <QFileInfo>
 
 #include "WizObject.h"
 #include "WizMd5.h"
@@ -140,6 +141,7 @@ CString WizStringFromBase64(const CString& strBase64);
 
 // skin related
 QString WizGetDefaultSkinName();
+QString WizLoadSkinStyleSheet(const QString& strSkinName);
 void WizGetSkins(QStringList& skins);
 QString WizGetSkinResourcePath(const QString& strSkinName);
 QString WizGetSkinDisplayName(const QString& strSkinName, const QString& strLocale);
@@ -156,7 +158,12 @@ QIcon WizLoadSkinIcon3(const QString& strIconName, QIcon::Mode mode);
 
 void WizScaleIconSizeForRetina(QSize& size);
 
-bool WizCreateThumbnailForAttachment(QImage& img, const QString& attachFileName, const QSize& iconSize);
+bool WizCreateThumbnailForAttachment(
+        QImage& img, const QString& attachFileName,
+        const QSize& iconSize, qreal scaleFactor = 1, const QString fileTitle = "");
+bool WizCreateThumbnailForAttachment(
+        QImage& img, const QFileInfo& attachFileInfo,
+        const QSize& iconSize, qreal scaleFactor = 1, const QString fileTitle = "");
 
 QString WizGetHtmlBodyContent(const QString& strHtml);
 bool WizGetBodyContentFromHtml(QString& strHtml, bool bNeedTextParse);

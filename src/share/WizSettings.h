@@ -8,8 +8,6 @@
 
 #include "database/WizDatabase.h"
 
-#define WIZSETTINGS_DEFAULT_PAGEPADDING "16"
-
 enum WizProxyType
 {
     WizProxy_NoProxy,
@@ -42,7 +40,7 @@ public:
     BOOL getBool(const QString& strSection, const QString& strKey, bool def = false);
     BOOL setBool(const QString& strSection, const QString& strKey, bool def);
 
-    QColor getColor(const QString& strSection, const QString& strKey, QColor defColor = "#FFFFFF");
+    QColor getColor(const QString& strSection, const QString& strKey, QColor defColor = QColor(0xFF, 0xFF, 0xFF));
 
     QString getEncryptedString(const QString& strSection, const QString& strKey, const QString& strDef = "");
     BOOL setEncryptedString(const QString& strSection, const QString& strKey, const QString& str);
@@ -141,9 +139,6 @@ public:
     bool showSystemTrayIcon() const;
     void setShowSystemTrayIcon(bool bShowTrayIcon);
 
-    bool useSystemBasedStyle() const;
-    void setUseSystemBasedStyle(bool bSystemStyle);
-
     bool isEnableSpellCheck() const;
     void setEnableSpellCheck(bool b);
 
@@ -178,13 +173,16 @@ public:
     QString editorBackgroundColor();
     void setEditorBackgroundColor(const QString& strColor);
 
-    QString editorLineHeight();
+    static const QString kDefaultEditorLineHeight;
+    QString editorLineHeight(bool force_default = false);
     void setEditorLineHeight(const QString& strLineHeight);
 
-    QString editorParaSpacing();
+    static const QString kDefaultEditorParaSpacing;
+    QString editorParaSpacing(bool force_default = false);
     void setEditorParaSpacing(const QString& strSpacing);
 
-    QString editorPagePadding();
+    static const QString kDefaultEditorPagePadding;
+    QString editorPagePadding(bool force_default = false);
     void setEditorPagePadding(const QString& strPadding);
 
     bool isManualSortingEnabled();
@@ -199,11 +197,21 @@ public:
     WizDocumentViewMode noteViewMode() const;
     void setNoteViewMode(WizDocumentViewMode strMode) { set("NoteViewMode", QString::number(strMode)); }
 
-    QString defaultFontFamily();
+    static const QString kDefaultEditorFontFamily;
+    QString defaultFontFamily(bool force_default = false);
     void setDefaultFontFamily(const QString& strFont);
 
-    int defaultFontSize();
+    static const int kDefaultEditorFontSize;
+    int defaultFontSize(bool force_default = false);
     void setDefaultFontSize(int nSize);
+
+    static const QString kDefaultUIFontFamily;
+    QString UIFontFamily(bool force_default = false);
+    void setUIFontFamily(const QString& font);
+
+    static const int kDefaultUIFontSize;
+    int UIFontSize(bool force_default = false);
+    void setUIFontSize(int size);
 
     // default: 5, 15, 30, 60, -1(manual)
     int syncInterval() const;
@@ -221,13 +229,25 @@ public:
 
     void appendRecentSearch(const QString& search);
     QStringList getRecentSearches(bool reverseOrder = false);
-    //
+
     void setLastAttachmentPath(const QString& path);
     QString lastAttachmentPath() const;
 
-    //
     bool showSubFolderDocuments();
     void setShowSubFolderDocuments(bool b);
+
+    bool showLayoutCategoryView();
+    void setShowLayoutCategoryView(bool b);
+
+    bool showLayoutDocumentListView();
+    void setShowLayoutDocumentListView(bool b);
+
+    bool showLayoutTabBrowser();
+    void setShowLayoutTabBrowser(bool b);
+
+private:
+    bool showLayout(const QString &view);
+    void setShowLayout(const QString &view, bool b);
 };
 
 #endif // WIZSETTINGS_H

@@ -1,4 +1,4 @@
-project(WizNote)
+add_subdirectory(libs)
 
 #============================================================================
 # Sources
@@ -134,8 +134,8 @@ set(wiznote_SOURCES
     jsplugin/JSPlugin.cpp
     jsplugin/JSPluginManager.cpp
     jsplugin/JSPluginSpec.cpp
-    jsplugin/JSPluginSelectorWindow.cpp
-    jsplugin/JSPluginHtmlDialog.cpp
+    jsplugin/JSPluginWidgets.cpp
+    jsplugin/JSRepl.cpp
 
     api/PublicAPIsServer.cpp
     api/WebSocketClientWrapper.cpp
@@ -182,6 +182,9 @@ set(wiznote_SOURCES
     gui/documentviewer/WizSearchReplaceWidget.cpp
     gui/documentviewer/WizTitleEdit.cpp
     gui/documentviewer/WizSvgEditorDialog.cpp
+    gui/documentviewer/CollaborationDocView.cpp
+    gui/documentviewer/DocumentLoaderSaver.cpp
+    gui/documentviewer/AbstractDocumentView.cpp
 
     WizActions.cpp
     WizNoteStyle.cpp
@@ -204,6 +207,8 @@ set(wiznote_SOURCES
     WizUpgrade.cpp
     WizButton.cpp
     WizFileImporter.cpp
+    WizFileExporter.cpp
+    widgets/FileExportWizard.cpp
     WizProgressDialog.cpp
     WizDocumentSelectionView.cpp
     WizDocumentTransitionView.cpp
@@ -235,8 +240,12 @@ set(wiznote_SOURCES
     api/ApiWizDocumentListCtrl.cpp
     api/ApiWizDatabase.cpp
     api/ApiWizExplorerApp.cpp
+    api/QtClassWrapper.cpp
 
     utils/ExternalEditorLauncher.cpp
+    widgets/FileLineEdit.cpp
+    widgets/DownloadManagerWidget.cpp
+    widgets/ShadowWidget.cpp
 )
 
 set(wiznote_HEADERS
@@ -297,7 +306,7 @@ set(wiznote_HEADERS
     utils/WizStyleHelper.h
     utils/WizPathResolve.h
     share/WizWindowTitleBar.h
-    share/WizShadowWindow.h
+    share/WizFramelessWindow.h
     share/WizShadowEffect.h
     widgets/WizTableSelector.h
 
@@ -308,8 +317,8 @@ set(wiznote_HEADERS
     jsplugin/JSPlugin.h
     jsplugin/JSPluginManager.h
     jsplugin/JSPluginSpec.h
-    jsplugin/JSPluginSelectorWindow.h
-    jsplugin/JSPluginHtmlDialog.h
+    jsplugin/JSPluginWidgets.h
+    jsplugin/JSRepl.h
 
     api/PublicAPIsServer.h
     api/WebSocketClientWrapper.h
@@ -360,6 +369,9 @@ set(wiznote_HEADERS
     gui/documentviewer/WizSearchReplaceWidget.h
     gui/documentviewer/WizTitleEdit.h
     gui/documentviewer/WizSvgEditorDialog.h
+    gui/documentviewer/CollaborationDocView.h
+    gui/documentviewer/DocumentLoaderSaver.h
+    gui/documentviewer/AbstractDocumentView.h
 
     WizDocumentHistory.h
     WizAttachmentListWidget.h
@@ -385,6 +397,8 @@ set(wiznote_HEADERS
     WizDocumentTransitionView.h
     WizButton.h
     WizFileImporter.h
+    WizFileExporter.h
+    widgets/FileExportWizard.h
     WizProgressDialog.h
     WizDocumentSelectionView.h
     WizUserVerifyDialog.h
@@ -447,8 +461,12 @@ set(wiznote_HEADERS
     api/ApiWizDocumentListCtrl.h
     api/ApiWizDatabase.h
     api/ApiWizExplorerApp.h
+    api/QtClassWrapper.h
 
     utils/ExternalEditorLauncher.h
+    widgets/FileLineEdit.h
+    widgets/DownloadManagerWidget.h
+    widgets/ShadowWidget.h
 )
 
 set(wiznote_FORMS
@@ -477,6 +495,9 @@ set(wiznote_FORMS
     ui/WizCombineNotesDialog.ui
     ui/WizExternalEditorSettingDialog.ui
     ui/WizExternalEditorInfoDialog.ui
+    ui/WizFileExportDialog.ui
+    ui/DownloadManagerWidget.ui
+    ui/DownloadWidget.ui
 )
 
 set(wiznote_TRANSLATIONS
@@ -491,11 +512,11 @@ set(wiznote_RCS
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${quazip_INCLUDE_DIRS}
     ${ZLIB_INCLUDE_DIRS}
     ${cryptopp_INCLUDE_DIRS}
     ${OpenSSL_INCLUDE_DIRS}
-    ${Gumbo_INCLUDE_DIRS}
+    libs/3rdparty
+    libs/3rdparty/quzip
 )
 
 #============================================================================
@@ -508,7 +529,7 @@ qt_add_ui(wiznote_FORM_HEADERS ${wiznote_FORMS})
 qt_add_resources(wiznote_RC ${wiznote_RCS})
 qt_add_translation(wiznote_QM ${wiznote_TRANSLATIONS})
 
-message("WizNote whill compiling as ${CMAKE_BUILD_TYPE}, use Qt: ${QT_VERSION}")
+message("WizNotePlus whill compiling as ${CMAKE_BUILD_TYPE}, use Qt: ${QT_VERSION}")
 
 # Monitor file content changes in share directory
 file(GLOB_RECURSE share_files LIST_DIRECTORIES false ${CMAKE_SOURCE_DIR}/share/**/*)
@@ -529,8 +550,8 @@ if(UNIX)
         # refer to: https://bugreports.qt-project.org/browse/QTBUG-18662
         file(GLOB _qt5_QM ${qt_translations_dir}/qt_*.qm)
 
-        add_executable(WizNote MACOSX_BUNDLE  ${wiznote_HEADERS} ${wiznote_HEADERS_MAC} ${wiznote_FORM_HEADERS} ${wiznote_SOURCES_MAC} ${wiznote_SOURCES} ${wiznote_QM} ${_qt5_QM} ${wiznote_RC} ${wiznote_LOGO})
-        set_target_properties(WizNote PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+        add_executable(WizNotePlus MACOSX_BUNDLE  ${wiznote_HEADERS} ${wiznote_HEADERS_MAC} ${wiznote_FORM_HEADERS} ${wiznote_SOURCES_MAC} ${wiznote_SOURCES} ${wiznote_QM} ${_qt5_QM} ${wiznote_RC} ${wiznote_LOGO})
+        set_target_properties(WizNotePlus PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
         set_target_properties(${PROJECT_NAME} PROPERTIES AUTOMOC_MOC_OPTIONS "-DQ_OS_MAC")
 
         # this should be issue of cmake, refer: http://public.kitware.com/Bug/bug_revision_view_page.php?rev_id=958
@@ -540,7 +561,7 @@ if(UNIX)
         set_target_properties(${PROJECT_NAME} PROPERTIES COMPILE_FLAGS "-mmacosx-version-min=10.7")
 
         # suppress cmake warnning when link library is not a target, refer to cmp0016 for detailed info.
-        cmake_policy(SET CMP0016 OLD)
+        #cmake_policy(SET CMP0016 OLD)
         find_library(_CARBON_LIBRARY Carbon)
         find_library(_COCOA_LIBRARY Cocoa)
         find_library(_WEBENGINE_LIBRARY WebEngine)
@@ -570,7 +591,7 @@ if(UNIX)
             COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/build/osx/localize/ ${WIZNOTE_RESOURCE_DIR})
 
     elseif(NOT APPLE)
-        add_executable(WizNote ${wiznote_SOURCES} ${wiznote_HEADERS} ${wiznote_FORM_HEADERS} ${wiznote_QM} ${wiznote_RC})
+        add_executable(WizNotePlus ${wiznote_SOURCES} ${wiznote_HEADERS} ${wiznote_FORM_HEADERS} ${wiznote_QM} ${wiznote_RC})
         set_target_properties(${PROJECT_NAME} PROPERTIES AUTOMOC_MOC_OPTIONS "-DQ_OS_LINUX")
         set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS "-static-libstdc++ -static-libgcc")
 
@@ -594,8 +615,9 @@ else()
     # Windows
     add_definitions(-DUNICODE=TRUE)
     add_definitions(-D_UNICODE=TRUE)
+    add_definitions(-DNOMINMAX)
     #add_compile_options("/utf-8") # UNICODE or _UNICODE may not work
-    add_executable(WizNote WIN32 ${wiznote_SOURCES} ${wiznote_HEADERS} 
+    add_executable(WizNotePlus WIN32 ${wiznote_SOURCES} ${wiznote_HEADERS} 
         ${wiznote_FORM_HEADERS} ${wiznote_QM} ${wiznote_RC} 
         ${CMAKE_SOURCE_DIR}/resources/logo.rc
     )
@@ -613,8 +635,8 @@ else()
     endforeach()
 endif()
 
-qt_use_modules(WizNote)
-qt_suppress_warnings(WizNote)
+qt_use_modules(WizNotePlus)
+qt_suppress_warnings(WizNotePlus)
 
 if (APPLE)
     include_directories(~/Library/Frameworks)
@@ -635,17 +657,21 @@ if(UNIX)
             target_link_libraries(${PROJECT_NAME}
                 ${CMAKE_DL_LIBS}
                 ${cryptopp_LIBRARIES}
-                ${quazip_LIBRARIES}
                 ${ZLIB_LIBRARIES}
                 ${Gumbo_LIBRARIES}
+                FramelessHelper
+                QuaZip
+                gumbo
             )
         else(APPSTORE_BUILD)
             target_link_libraries(${PROJECT_NAME}
                 ${CMAKE_DL_LIBS}
                 ${cryptopp_LIBRARIES}
-                ${quazip_LIBRARIES}
                 ${ZLIB_LIBRARIES}
                 ${Gumbo_LIBRARIES}
+                FramelessHelper
+                QuaZip
+                gumbo
             )
         endif(APPSTORE_BUILD)
     else(APPLE)
@@ -656,9 +682,11 @@ if(UNIX)
             ${CMAKE_DL_LIBS}
             ${cryptopp_LIBRARIES}
             ${OpenSSL_LIBRARIES}
-            ${quazip_LIBRARIES}
             ${ZLIB_LIBRARIES}
             ${Gumbo_LIBRARIES}
+            wangwenx190::FramelessHelper
+            QuaZip
+            gumbo
         )
     endif(APPLE)
 else(NOT UNIX)
@@ -666,8 +694,11 @@ else(NOT UNIX)
         ${CMAKE_DL_LIBS}
         ${cryptopp_LIBRARIES}
         ${OpenSSL_LIBRARIES}
-        ${quazip_LIBRARIES}
         ${ZLIB_LIBRARIES}
         ${Gumbo_LIBRARIES}
+        FramelessHelper
+        QuaZip
+        dwmapi
+        gumbo
     )
 endif()
